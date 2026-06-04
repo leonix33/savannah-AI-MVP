@@ -180,6 +180,57 @@ def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: i
     return make_prompt(task=task, template=template, user_input=user_input, tone=tone, platform=platform, n=n)
 
 
+def build_facebook_post_package(generation: dict) -> str:
+    media_name = generation.get("media_name") or "No media attached"
+    notes = generation.get("input") or "No extra notes provided."
+    generated_copy = generation.get("result") or ""
+
+    return "\n".join(
+        [
+            "Savannah Smokes Facebook Post Package",
+            "",
+            f"Status: Ready for owner review",
+            f"Platform: Facebook Page",
+            f"Source task: {generation.get('task', 'Unknown')}",
+            f"Tone: {generation.get('tone', 'Unknown')}",
+            f"Media: {media_name}",
+            f"Owner notes: {notes}",
+            "Suggested posting time: Today between 5:00 PM and 7:00 PM local time",
+            "",
+            "Caption / Hashtags:",
+            generated_copy,
+            "",
+            "Next step: Review the copy, make edits if needed, then publish manually on Facebook.",
+        ]
+    )
+
+
+def render_prepared_facebook_post():
+    generation = st.session_state.get("latest_generation")
+    if not generation:
+        return
+
+    st.markdown("---")
+    st.subheader("Facebook post preparation")
+    st.caption("Prepare a review-ready package without posting to Meta yet.")
+
+    if st.button("Prepare Facebook Post"):
+        st.session_state["show_prepared_facebook_post"] = True
+
+    if not st.session_state.get("show_prepared_facebook_post"):
+        return
+
+    package = build_facebook_post_package(generation)
+    st.success("Facebook post package is ready for owner review.")
+    st.text_area("Prepared Facebook post package", value=package, height=300)
+    st.download_button(
+        "Download Facebook post package",
+        package,
+        file_name="savannah_smokes_facebook_post.txt",
+        mime="text/plain",
+    )
+
+
 def render_saved_outputs():
     rows = db.list_results(500)
     st.subheader("Saved generation history")
@@ -539,6 +590,16 @@ def main():
                     st.write(str(exc))
                     return
 
+                st.session_state["latest_generation"] = {
+                    "task": task,
+                    "platform": platform,
+                    "tone": tone,
+                    "input": user_input,
+                    "result": result,
+                    "media_name": uploaded_image.name if task == "Image upload caption generator" and uploaded_image else None,
+                }
+                st.session_state["show_prepared_facebook_post"] = False
+
                 st.success("Generated fresh marketing copy.")
 
                 if task == "Image upload caption generator":
@@ -607,6 +668,8 @@ def main():
                         st.success("Saved result to local database.")
                     except Exception as exc:
                         st.warning(f"Could not save result: {exc}")
+
+    render_prepared_facebook_post()
 
     if show_saved:
         render_saved_outputs()
