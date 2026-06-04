@@ -25,6 +25,22 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Notes
+## GitHub and deployment
+
+- Initialize git if you haven't already:
+
+```bash
+git init
+git add .
+git commit -m "Initial Savannah BBQ Growth Engine MVP"
+```
+
+- To push to GitHub, create a new repository named `savannah-bbq-growth-engine` and follow the GitHub instructions to add a remote and push.
+
+- This repo is now structured for deployment.
+
+## Notes
+
 - This is a local MVP. It does NOT connect to Facebook/Meta or run any automation.
 - Keep your OpenAI key private; do not commit `.env` to version control.
+- The `assets/` folder holds branding visuals for the app.

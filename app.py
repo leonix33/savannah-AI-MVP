@@ -149,9 +149,25 @@ def main():
     init_app()
 
     st.set_page_config(page_title="Savannah BBQ Growth Engine v2", page_icon="🍖")
-    st.title("Savannah BBQ Growth Engine — v2")
+    banner_path = os.path.join("assets", "banner.png")
+    logo_path = os.path.join("assets", "logo.png")
+
+    if os.path.exists(banner_path):
+        st.image(banner_path, use_column_width=True)
+
+    cols = st.columns([1, 3])
+    if os.path.exists(logo_path):
+        cols[0].image(logo_path, width=120)
+
+    cols[1].markdown("""
+    ## Savannah BBQ Growth Engine — v2
+    AI-powered marketing copy for your food truck.
+    Create local captions, viral hashtags, promotional posts, replies, event announcements, catering promos, and email campaigns.
+    """)
+
+    st.markdown("---")
     st.markdown(
-        "Build captions, hooks, hashtags, replies, and weekend promo ideas for Savannah BBQ with tone and platform controls."
+        "**Local-first. Social-ready. Brand-safe.** Built for Savannah BBQ to help you publish faster and stay consistent across channels."
     )
 
     st.sidebar.header("Generation controls")
