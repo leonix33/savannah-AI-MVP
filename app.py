@@ -41,7 +41,7 @@ def make_prompt(task: str, template: str, user_input: str, tone: str, platform: 
     )
 
 
-def generate_content(prompt: str) -> str:
+def generate_content(prompt: str):
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -52,7 +52,9 @@ def generate_content(prompt: str) -> str:
             temperature=0.8,
             max_tokens=500,
         )
-        return response["choices"][0]["message"]["content"].strip()
+        content = response["choices"][0]["message"]["content"].strip()
+        usage = response.get("usage", {})
+        return content, usage
     except Exception as exc:
         raise RuntimeError(f"OpenAI generation failed: {exc}") from exc
 
@@ -212,10 +214,42 @@ def main():
         st.error("OPENAI_API_KEY not found. Add your key to .env and restart the app.")
         st.stop()
 
-    if task == "Customer comment replies":
-        user_input = st.text_area("Customer comment:", height=140)
-    else:
-        user_input = st.text_area("Describe the reel, post, or promo context:", height=180)
+    # Example prompt buttons/selectors to speed up input for the owner
+    examples = {
+        "Facebook Reel captions": [
+            "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea",
+            "Join us tonight for live music and half-price wings — see you at the truck!",
+        ],
+        "Hashtag Generator": [
+            "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea",
+            "Catering for graduation parties with bulk trays and discounts",
+        ],
+        "Email campaigns": [
+            "Announcing our catering special for graduations: discount and bulk trays",
+            "Monthly newsletter: new menu items and community events",
+        ],
+        "Customer comment replies": [
+            "Customer: Loved the brisket! When's the next pop-up?",
+            "Customer: Do you have vegetarian options?",
+        ],
+        "default": [
+            "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea",
+        ],
+    }
+
+    label = "Customer comment:" if task == "Customer comment replies" else "Describe the reel, post, or promo context:"
+    height = 140 if task == "Customer comment replies" else 180
+
+    # prepare session_state key for input
+    if "user_input" not in st.session_state:
+        st.session_state["user_input"] = ""
+
+    opts = examples.get(task, examples["default"])[:3]
+    choice = st.selectbox("Insert example prompt", ["— choose example —"] + opts, key="example_choice")
+    if choice and choice != "— choose example —":
+        st.session_state["user_input"] = choice
+
+    user_input = st.text_area(label, value=st.session_state.get("user_input", ""), height=height, key="user_input")
 
     if not user_input.strip():
         st.warning("Enter some context before generating. The clearer the description, the better the results.")
