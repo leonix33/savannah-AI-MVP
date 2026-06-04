@@ -205,6 +205,144 @@ def build_facebook_post_package(generation: dict) -> str:
     )
 
 
+def build_menu_intelligence_prompt(
+    specialties: str,
+    promotions: str,
+    audience: str,
+    goal: str,
+    platform: str,
+    tone: str,
+    n: int,
+) -> str:
+    return (
+        "Create a smart marketing plan for Savannah Smokes based on the menu, specials, and business goal below.\n\n"
+        f"Menu specialties:\n{specialties or 'Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea'}\n\n"
+        f"Current promotions or specials:\n{promotions or 'No current specials provided'}\n\n"
+        f"Target customer:\n{audience or 'Local BBQ fans, families, event guests, and catering customers'}\n"
+        f"Business goal:\n{goal or 'Increase orders, catering inquiries, and social engagement'}\n"
+        f"Platform: {platform}\n"
+        f"Tone: {tone}\n"
+        f"Number of ideas: {n}\n\n"
+        "Return a practical business-intelligence style marketing plan with:\n"
+        "1. The most appetite-building menu angles\n"
+        "2. Promotions likely to convert customers\n"
+        "3. Suggested specials or bundles\n"
+        "4. Caption/hooks for social media\n"
+        "5. Hashtags\n"
+        "6. Best next action for the owner"
+    )
+
+
+def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
+    st.subheader("Menu & Specials Lab")
+    st.caption("Turn menu items, specials, and customer targets into smarter promotions.")
+
+    with st.form("menu_specials_form"):
+        specialties = st.text_area(
+            "Signature items / specialties",
+            value="Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea",
+            height=100,
+        )
+        promotions = st.text_area(
+            "Current promotions, specials, or bundles",
+            placeholder="Example: Weekend brisket plate, family combo, catering trays, graduation party special",
+            height=100,
+        )
+        cols = st.columns(2)
+        audience = cols[0].text_input(
+            "Target customer",
+            value="Local families, BBQ fans, event guests, and catering customers",
+        )
+        goal = cols[1].text_input(
+            "Business goal",
+            value="Drive weekend orders and catering leads",
+        )
+        idea_count = st.slider("Number of menu marketing ideas", min_value=1, max_value=10, value=5)
+        submitted = st.form_submit_button("Generate menu marketing ideas")
+
+    if not submitted:
+        return
+
+    with st.spinner("Finding tasty, promotion-ready angles..."):
+        try:
+            prompt = build_menu_intelligence_prompt(
+                specialties=specialties,
+                promotions=promotions,
+                audience=audience,
+                goal=goal,
+                platform=platform,
+                tone=tone,
+                n=idea_count,
+            )
+            result, usage = generate_content(prompt)
+        except Exception as exc:
+            st.error("Could not generate menu marketing ideas.")
+            st.write(str(exc))
+            return
+
+    st.success("Menu marketing ideas generated.")
+    st.text_area("Menu intelligence output", value=result, height=360)
+    st.download_button(
+        "Download menu marketing plan",
+        result,
+        file_name="savannah_smokes_menu_marketing_plan.txt",
+        mime="text/plain",
+    )
+
+    if usage:
+        total_t = usage.get("total_tokens")
+        actual_cost = (total_t or 0) / 1000.0 * float(cost_per_1k)
+        st.caption(f"Usage: {total_t} tokens. Estimated cost: ${actual_cost:.4f}")
+
+    try:
+        saved_input = (
+            f"Specialties: {specialties}\n"
+            f"Promotions: {promotions or 'None provided'}\n"
+            f"Audience: {audience}\n"
+            f"Goal: {goal}"
+        )
+        db.save_result("Menu & Specials Lab", platform, tone, saved_input, result)
+        st.success("Saved menu marketing plan to local history.")
+    except Exception as exc:
+        st.warning(f"Could not save menu marketing plan: {exc}")
+
+
+def render_social_media_integration_guide():
+    st.subheader("Social Media Integration Path")
+    st.caption("A business-safe path from generated content to future Facebook/Instagram publishing.")
+
+    st.markdown(
+        """
+        **Current safe workflow**
+
+        1. Generate caption, hashtags, and promo copy.
+        2. Use **Prepare Facebook Post** after generation.
+        3. Review/edit the package.
+        4. Manually publish on Facebook or Instagram.
+
+        **Next technical step**
+
+        Add a Meta connection screen that stores page/account settings outside the codebase, then use the
+        Meta Graph API only after owner approval.
+
+        **What Meta setup needs**
+
+        - Facebook Business Page for Savannah Smokes
+        - Admin access to that Page
+        - Meta Developer account and Meta app
+        - Facebook Login configured
+        - Page access token
+        - Permissions such as `pages_manage_posts` and `pages_read_engagement`
+        - App Review before publishing for users beyond the admin/test account
+
+        **Recommended product sequence**
+
+        Keep the app in review-first mode now. Add direct publishing later as a separate owner-approved step:
+        `Generate -> Review/Edit -> Prepare Post -> Publish to Facebook Page`.
+        """
+    )
+
+
 def render_prepared_facebook_post():
     generation = st.session_state.get("latest_generation")
     if not generation:
@@ -475,6 +613,15 @@ def main():
     if not OPENAI_API_KEY:
         st.error("OPENAI_API_KEY not found. Add your key to .env and restart the app.")
         st.stop()
+
+    intelligence_tab, social_tab = st.tabs(["Menu & Specials Lab", "Social Media Setup"])
+    with intelligence_tab:
+        render_menu_specials_lab(platform, tone, cost_per_1k)
+    with social_tab:
+        render_social_media_integration_guide()
+
+    st.markdown("---")
+    st.subheader("AI content generator")
 
     # Example prompt buttons/selectors to speed up input for the owner
     examples = {
