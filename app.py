@@ -209,6 +209,7 @@ def build_menu_intelligence_prompt(
     specialties: str,
     weekly_specials: str,
     happy_hour: str,
+    delivery_options: str,
     audience: str,
     goal: str,
     platform: str,
@@ -220,6 +221,7 @@ def build_menu_intelligence_prompt(
         f"Menu specialties:\n{specialties or 'Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea'}\n\n"
         f"Weekly specials:\n{weekly_specials or 'No weekly specials provided'}\n\n"
         f"Happy hour offers:\n{happy_hour or 'No happy hour offers provided'}\n\n"
+        f"Delivery offers:\n{delivery_options or 'Special delivery, weekly delivery, after-hours delivery, after-club-hours food, and home delivery'}\n\n"
         f"Target customer:\n{audience or 'Local BBQ fans, families, event guests, and catering customers'}\n"
         f"Business goal:\n{goal or 'Increase orders, catering inquiries, and social engagement'}\n"
         f"Platform: {platform}\n"
@@ -229,10 +231,11 @@ def build_menu_intelligence_prompt(
         "1. The most appetite-building menu angles\n"
         "2. Weekly specials likely to convert customers\n"
         "3. Happy hour hooks that feel urgent and tasty\n"
-        "4. Suggested bundles or limited-time offers\n"
-        "5. Caption/hooks for social media\n"
-        "6. Hashtags\n"
-        "7. Best next action for the owner"
+        "4. Special delivery, weekly delivery, after-hours, after-club, and home delivery angles\n"
+        "5. Suggested bundles or limited-time offers\n"
+        "6. Captions/hooks that make Savannah Smokes feel unique, special, craveable, and very tasty\n"
+        "7. Hashtags\n"
+        "8. Best next action for the owner"
     )
 
 
@@ -256,6 +259,11 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
             placeholder="Example: 4-6 PM wings special, loaded fries deal, sweet tea combo, after-work BBQ plate",
             height=100,
         )
+        delivery_options = st.text_area(
+            "Delivery offers",
+            placeholder="Example: special delivery, weekly delivery routes, after-club-hours food, late-night plates, home delivery",
+            height=100,
+        )
         cols = st.columns(2)
         audience = cols[0].text_input(
             "Target customer",
@@ -277,6 +285,7 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
                 specialties=specialties,
                 weekly_specials=weekly_specials,
                 happy_hour=happy_hour,
+                delivery_options=delivery_options,
                 audience=audience,
                 goal=goal,
                 platform=platform,
@@ -308,6 +317,7 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
             f"Specialties: {specialties}\n"
             f"Weekly specials: {weekly_specials or 'None provided'}\n"
             f"Happy hour: {happy_hour or 'None provided'}\n"
+            f"Delivery offers: {delivery_options or 'None provided'}\n"
             f"Audience: {audience}\n"
             f"Goal: {goal}"
         )
