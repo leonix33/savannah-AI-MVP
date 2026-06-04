@@ -58,10 +58,16 @@ def generate_content(prompt: str) -> str:
 
 
 def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: int) -> str:
-    if task == "Hashtag generator":
+    if task == "Hashtag Generator":
+        template = (
+            "Generate {n} high-quality hashtags for {platform} posts about: {input}. "
+            "Include a mix of local, food, BBQ, event, and engagement hashtags. "
+            "Keep the hashtags clean, professional, and ready for social media. "
+            "Return only hashtags separated by spaces or commas."
+        )
         return make_prompt(
             task=task,
-            template="Generate {n} hashtag suggestions for {platform} posts about: {input}. Tone: {tone}. Return only hashtags separated by spaces or commas.",
+            template=template,
             user_input=user_input,
             tone=tone,
             platform=platform,
@@ -178,7 +184,7 @@ def main():
         [
             "Facebook Reel captions",
             "Short viral hooks",
-            "Hashtag generator",
+            "Hashtag Generator",
             "Customer comment replies",
             "Weekend promo post ideas",
             "Event announcements",
