@@ -227,7 +227,14 @@ def main():
             with st.spinner("Generating your copy..."):
                 try:
                     prompt = build_task_prompt(task, user_input, tone, platform, num)
-                    result = generate_content(prompt)
+                    # show estimated cost before calling the API
+                    est_prompt_tokens = max(1, len(prompt) // 4)
+                    est_completion_tokens = 500
+                    est_total = est_prompt_tokens + est_completion_tokens
+                    est_cost = est_total / 1000.0 * float(cost_per_1k)
+                    st.info(f"Estimated tokens: {est_total} (~{est_cost:.4f}$ at ${cost_per_1k:.6f}/1k)")
+
+                    result, usage = generate_content(prompt)
                 except Exception as exc:
                     st.error("Failed to generate content.")
                     st.write(str(exc))
@@ -236,6 +243,14 @@ def main():
                 st.subheader("Generated output")
                 st.text_area("Copy-friendly output", value=result, height=260)
                 st.download_button("Download result as text", result, file_name="savannah_bbq_result.txt", mime="text/plain")
+
+                # show actual usage/cost when available
+                if usage:
+                    prompt_t = usage.get("prompt_tokens")
+                    completion_t = usage.get("completion_tokens")
+                    total_t = usage.get("total_tokens")
+                    actual_cost = (total_t or 0) / 1000.0 * float(cost_per_1k)
+                    st.success(f"OpenAI usage — prompt: {prompt_t}, completion: {completion_t}, total: {total_t}. Estimated cost: ${actual_cost:.4f}")
 
                 escaped_result = html.escape(result)
                 copy_html = """
