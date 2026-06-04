@@ -1,8 +1,10 @@
 import os
 import io
 import csv
+import html
 from dotenv import load_dotenv
 import streamlit as st
+import streamlit.components.v1 as components
 import openai
 from utils import db
 
@@ -228,6 +230,33 @@ def main():
                 st.subheader("Generated output")
                 st.text_area("Copy-friendly output", value=result, height=260)
                 st.download_button("Download result as text", result, file_name="savannah_bbq_result.txt", mime="text/plain")
+
+                escaped_result = html.escape(result)
+                copy_html = """
+                    <div>
+                      <button id="clipboard-btn" style="background-color:#4B8BBE;color:white;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-size:14px;">
+                        Copy to clipboard
+                      </button>
+                      <span id="clipboard-status" style="margin-left:12px;color:#4B8BBE;font-weight:600;font-size:14px;"></span>
+                      <div id="copy-data" style="display:none;">{copy_text}</div>
+                    </div>
+                    <script>
+                      const button = document.getElementById("clipboard-btn");
+                      const status = document.getElementById("clipboard-status");
+                      const text = document.getElementById("copy-data").innerText;
+                      button.onclick = async () => {{
+                        try {{
+                          await navigator.clipboard.writeText(text);
+                          status.textContent = "Copied!";
+                          setTimeout(() => status.textContent = "", 1500);
+                        }} catch (err) {{
+                          status.textContent = "Copy failed";
+                        }}
+                      }};
+                    </script>
+                """.format(copy_text=escaped_result)
+                components.html(copy_html, height=100)
+
                 st.markdown("**Tip:** highlight the generated text, then copy it into your social post.")
 
                 if save_to_db:
