@@ -2,6 +2,7 @@ import os
 import io
 import csv
 import html
+import base64
 from collections import Counter
 from dotenv import load_dotenv
 import streamlit as st
@@ -14,6 +15,8 @@ load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
+TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-3.5-turbo")
+VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini")
 
 
 def init_app():
@@ -45,7 +48,7 @@ def make_prompt(task: str, template: str, user_input: str, tone: str, platform: 
 def generate_content(prompt: str):
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=TEXT_MODEL,
             messages=[
                 {"role": "system", "content": "You are a helpful, creative social media assistant for a local food truck."},
                 {"role": "user", "content": prompt},
@@ -60,6 +63,40 @@ def generate_content(prompt: str):
         raise RuntimeError(f"OpenAI generation failed: {exc}") from exc
 
 
+def generate_image_content(prompt: str, image_bytes: bytes, image_mime: str):
+    image_data = base64.b64encode(image_bytes).decode("utf-8")
+    image_url = f"data:{image_mime};base64,{image_data}"
+
+    try:
+        response = openai.ChatCompletion.create(
+            model=VISION_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a visual marketing assistant for Savannah Smokes, "
+                        "a local BBQ food truck. Write practical, social-ready copy "
+                        "based on the uploaded food or event photo."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                },
+            ],
+            temperature=0.8,
+            max_tokens=650,
+        )
+        content = response["choices"][0]["message"]["content"].strip()
+        usage = response.get("usage", {})
+        return content, usage
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI image generation failed: {exc}") from exc
+
+
 def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: int) -> str:
     if task == "Hashtag Generator":
         template = (
@@ -72,6 +109,22 @@ def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: i
             task=task,
             template=template,
             user_input=user_input,
+            tone=tone,
+            platform=platform,
+            n=n,
+        )
+
+    if task == "Image upload caption generator":
+        template = (
+            "Analyze the uploaded image and create {n} social media caption options for {platform}. "
+            "Use a {tone} tone. Owner notes or campaign context: {input}. "
+            "For each option, include a short caption, a clear call-to-action, and 5-8 relevant hashtags. "
+            "Keep the copy accurate to what is visible in the image and avoid inventing details."
+        )
+        return make_prompt(
+            task=task,
+            template=template,
+            user_input=user_input or "No extra notes provided.",
             tone=tone,
             platform=platform,
             n=n,
@@ -305,7 +358,7 @@ def main():
     cols[1].markdown("""
     ## Savannah BBQ Growth Engine — v2
     AI-powered marketing copy for your food truck.
-    Create local captions, viral hashtags, promotional posts, replies, event announcements, catering promos, and email campaigns.
+    Create local captions, viral hashtags, promotional posts, photo-based captions, replies, event announcements, catering promos, and email campaigns.
     """)
 
     st.markdown("---")
@@ -325,6 +378,7 @@ def main():
             "Event announcements",
             "Catering promotions",
             "Email campaigns",
+            "Image upload caption generator",
         ],
     )
 
@@ -373,13 +427,24 @@ def main():
             "Customer: Loved the brisket! When's the next pop-up?",
             "Customer: Do you have vegetarian options?",
         ],
+        "Image upload caption generator": [
+            "Turn this BBQ photo into a weekend promo with a friendly call-to-action",
+            "Write captions that highlight smoky flavor, local pride, and catering availability",
+        ],
         "default": [
             "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea",
         ],
     }
 
-    label = "Customer comment:" if task == "Customer comment replies" else "Describe the reel, post, or promo context:"
-    height = 140 if task == "Customer comment replies" else 180
+    if task == "Customer comment replies":
+        label = "Customer comment:"
+        height = 140
+    elif task == "Image upload caption generator":
+        label = "Optional notes for this image:"
+        height = 120
+    else:
+        label = "Describe the reel, post, or promo context:"
+        height = 180
 
     # prepare session_state key for input
     if "user_input" not in st.session_state:
@@ -391,6 +456,16 @@ def main():
         st.session_state["user_input"] = choice
 
     user_input = st.text_area(label, value=st.session_state.get("user_input", ""), height=height, key="user_input")
+
+    uploaded_image = None
+    if task == "Image upload caption generator":
+        uploaded_image = st.file_uploader(
+            "Upload BBQ food or event photo",
+            type=["png", "jpg", "jpeg", "webp"],
+            help="Upload the photo you want captions, hashtags, and promo copy for.",
+        )
+        if uploaded_image:
+            st.image(uploaded_image, caption=uploaded_image.name, use_column_width=True)
 
     # Example prompt toolbar for fast demo inputs
     st.markdown("**Quick demo prompts:**")
@@ -404,11 +479,15 @@ def main():
     if demo_cols[3].button("Friday event announcement"):
         st.session_state["user_input"] = "Friday event announcement with live music, drink specials, and late-night BBQ feast"
 
-    if not user_input.strip():
+    if task == "Image upload caption generator" and not uploaded_image:
+        st.warning("Upload an image before generating photo-based captions.")
+    elif not user_input.strip():
         st.warning("Enter some context before generating. The clearer the description, the better the results.")
 
     if st.button("Generate content"):
-        if not user_input.strip():
+        if task == "Image upload caption generator" and not uploaded_image:
+            st.error("Please upload an image before generating photo-based captions.")
+        elif task != "Image upload caption generator" and not user_input.strip():
             st.error("Please add some context or a customer comment before generating.")
         else:
             with st.spinner("Generating your copy..."):
@@ -423,7 +502,12 @@ def main():
                         f"Estimated tokens: {est_total}\nEstimated request cost: ${est_cost:.4f}"
                     )
 
-                    result, usage = generate_content(prompt)
+                    if task == "Image upload caption generator":
+                        image_bytes = uploaded_image.getvalue()
+                        image_mime = uploaded_image.type or "image/jpeg"
+                        result, usage = generate_image_content(prompt, image_bytes, image_mime)
+                    else:
+                        result, usage = generate_content(prompt)
                 except Exception as exc:
                     st.error("Failed to generate content.")
                     st.write(str(exc))
@@ -473,7 +557,10 @@ def main():
 
                 if save_to_db:
                     try:
-                        db.save_result(task, platform, tone, user_input, result)
+                        saved_input = user_input
+                        if task == "Image upload caption generator" and uploaded_image:
+                            saved_input = f"Image: {uploaded_image.name}\nNotes: {user_input or 'No extra notes provided.'}"
+                        db.save_result(task, platform, tone, saved_input, result)
                         st.success("Saved result to local database.")
                     except Exception as exc:
                         st.warning(f"Could not save result: {exc}")
