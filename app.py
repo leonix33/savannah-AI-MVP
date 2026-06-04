@@ -207,7 +207,8 @@ def build_facebook_post_package(generation: dict) -> str:
 
 def build_menu_intelligence_prompt(
     specialties: str,
-    promotions: str,
+    weekly_specials: str,
+    happy_hour: str,
     audience: str,
     goal: str,
     platform: str,
@@ -217,7 +218,8 @@ def build_menu_intelligence_prompt(
     return (
         "Create a smart marketing plan for Savannah Smokes based on the menu, specials, and business goal below.\n\n"
         f"Menu specialties:\n{specialties or 'Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea'}\n\n"
-        f"Current promotions or specials:\n{promotions or 'No current specials provided'}\n\n"
+        f"Weekly specials:\n{weekly_specials or 'No weekly specials provided'}\n\n"
+        f"Happy hour offers:\n{happy_hour or 'No happy hour offers provided'}\n\n"
         f"Target customer:\n{audience or 'Local BBQ fans, families, event guests, and catering customers'}\n"
         f"Business goal:\n{goal or 'Increase orders, catering inquiries, and social engagement'}\n"
         f"Platform: {platform}\n"
@@ -225,11 +227,12 @@ def build_menu_intelligence_prompt(
         f"Number of ideas: {n}\n\n"
         "Return a practical business-intelligence style marketing plan with:\n"
         "1. The most appetite-building menu angles\n"
-        "2. Promotions likely to convert customers\n"
-        "3. Suggested specials or bundles\n"
-        "4. Caption/hooks for social media\n"
-        "5. Hashtags\n"
-        "6. Best next action for the owner"
+        "2. Weekly specials likely to convert customers\n"
+        "3. Happy hour hooks that feel urgent and tasty\n"
+        "4. Suggested bundles or limited-time offers\n"
+        "5. Caption/hooks for social media\n"
+        "6. Hashtags\n"
+        "7. Best next action for the owner"
     )
 
 
@@ -243,9 +246,14 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
             value="Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea",
             height=100,
         )
-        promotions = st.text_area(
-            "Current promotions, specials, or bundles",
-            placeholder="Example: Weekend brisket plate, family combo, catering trays, graduation party special",
+        weekly_specials = st.text_area(
+            "Weekly specials",
+            placeholder="Example: Tuesday rib plate, Friday brisket tray, Sunday family combo",
+            height=90,
+        )
+        happy_hour = st.text_area(
+            "Happy hour offers",
+            placeholder="Example: 4-6 PM wings special, loaded fries deal, sweet tea combo, after-work BBQ plate",
             height=100,
         )
         cols = st.columns(2)
@@ -267,7 +275,8 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
         try:
             prompt = build_menu_intelligence_prompt(
                 specialties=specialties,
-                promotions=promotions,
+                weekly_specials=weekly_specials,
+                happy_hour=happy_hour,
                 audience=audience,
                 goal=goal,
                 platform=platform,
@@ -297,7 +306,8 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
     try:
         saved_input = (
             f"Specialties: {specialties}\n"
-            f"Promotions: {promotions or 'None provided'}\n"
+            f"Weekly specials: {weekly_specials or 'None provided'}\n"
+            f"Happy hour: {happy_hour or 'None provided'}\n"
             f"Audience: {audience}\n"
             f"Goal: {goal}"
         )
