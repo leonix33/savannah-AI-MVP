@@ -475,13 +475,15 @@ def main():
 
     uploaded_image = None
     if task == "Image upload caption generator":
+        st.markdown("#### Upload a photo")
+        st.caption("Use a BBQ plate, food truck setup, event scene, or branded promo image.")
         uploaded_image = st.file_uploader(
             "Upload BBQ food or event photo",
             type=["png", "jpg", "jpeg", "webp"],
             help="Upload the photo you want captions, hashtags, and promo copy for.",
         )
         if uploaded_image:
-            st.image(uploaded_image, caption=uploaded_image.name, use_column_width=True)
+            st.image(uploaded_image, caption=f"Uploaded image: {uploaded_image.name}", use_column_width=True)
 
     # Example prompt toolbar for fast demo inputs
     st.markdown("**Quick demo prompts:**")
@@ -518,13 +520,14 @@ def main():
                         f"Estimated tokens: {est_total}\nEstimated request cost: ${est_cost:.4f}"
                     )
 
+                    optimized_image_message = None
                     if task == "Image upload caption generator":
                         original_image_bytes = uploaded_image.getvalue()
                         image_bytes, image_mime = optimize_image_for_vision(original_image_bytes)
                         original_size_kb = len(original_image_bytes) / 1024
                         optimized_size_kb = len(image_bytes) / 1024
                         reduction_pct = max(0, 100 - (optimized_size_kb / original_size_kb * 100))
-                        st.caption(
+                        optimized_image_message = (
                             f"Optimized image for AI: {original_size_kb:.0f} KB -> {optimized_size_kb:.0f} KB "
                             f"({reduction_pct:.0f}% smaller)."
                         )
@@ -536,8 +539,25 @@ def main():
                     st.write(str(exc))
                     return
 
-                st.subheader("Generated output")
-                st.text_area("Copy-friendly output", value=result, height=260)
+                st.success("Generated fresh marketing copy.")
+
+                if task == "Image upload caption generator":
+                    st.subheader("Generated from uploaded image")
+                    if optimized_image_message:
+                        st.caption(optimized_image_message)
+
+                    output_cols = st.columns([1, 1.2])
+                    with output_cols[0]:
+                        st.markdown("**Source image**")
+                        st.image(uploaded_image, caption=uploaded_image.name, use_column_width=True)
+                        st.info("Generated from uploaded image")
+                    with output_cols[1]:
+                        st.markdown("**Copy-friendly output**")
+                        st.text_area("Image-generated copy", value=result, height=360)
+                else:
+                    st.subheader("Generated output")
+                    st.text_area("Copy-friendly output", value=result, height=260)
+
                 st.download_button("Download result as text", result, file_name="savannah_bbq_result.txt", mime="text/plain")
 
                 # show actual usage/cost when available
