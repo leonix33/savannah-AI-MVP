@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import streamlit as st
 import streamlit.components.v1 as components
 import openai
+from PIL import Image, ImageOps
 from utils import db
 
 load_dotenv()
@@ -17,6 +18,8 @@ openai.api_key = OPENAI_API_KEY
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-3.5-turbo")
 VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini")
+MAX_IMAGE_SIDE = int(os.environ.get("MAX_IMAGE_SIDE", "1024"))
+IMAGE_JPEG_QUALITY = int(os.environ.get("IMAGE_JPEG_QUALITY", "82"))
 
 
 def init_app():
@@ -61,6 +64,19 @@ def generate_content(prompt: str):
         return content, usage
     except Exception as exc:
         raise RuntimeError(f"OpenAI generation failed: {exc}") from exc
+
+
+def optimize_image_for_vision(image_bytes: bytes) -> tuple[bytes, str]:
+    image = Image.open(io.BytesIO(image_bytes))
+    image = ImageOps.exif_transpose(image)
+    image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+
+    if image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=IMAGE_JPEG_QUALITY, optimize=True)
+    return buffer.getvalue(), "image/jpeg"
 
 
 def generate_image_content(prompt: str, image_bytes: bytes, image_mime: str):
@@ -503,8 +519,15 @@ def main():
                     )
 
                     if task == "Image upload caption generator":
-                        image_bytes = uploaded_image.getvalue()
-                        image_mime = uploaded_image.type or "image/jpeg"
+                        original_image_bytes = uploaded_image.getvalue()
+                        image_bytes, image_mime = optimize_image_for_vision(original_image_bytes)
+                        original_size_kb = len(original_image_bytes) / 1024
+                        optimized_size_kb = len(image_bytes) / 1024
+                        reduction_pct = max(0, 100 - (optimized_size_kb / original_size_kb * 100))
+                        st.caption(
+                            f"Optimized image for AI: {original_size_kb:.0f} KB -> {optimized_size_kb:.0f} KB "
+                            f"({reduction_pct:.0f}% smaller)."
+                        )
                         result, usage = generate_image_content(prompt, image_bytes, image_mime)
                     else:
                         result, usage = generate_content(prompt)
