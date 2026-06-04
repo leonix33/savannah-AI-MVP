@@ -112,20 +112,32 @@ def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: i
 
 def render_saved_outputs():
     rows = db.list_results(200)
-    st.subheader("Saved outputs")
+    st.subheader("Saved generation history")
     if not rows:
         st.info("No saved outputs yet")
         return
 
-    all_tasks = ["All"] + sorted({row[1] for row in rows})
-    task_filter = st.selectbox("Filter by saved task", options=all_tasks)
-    search_text = st.text_input("Search saved results")
+    st.markdown(f"**Total saved entries:** {len(rows)}")
+
+    all_tasks = ["All"] + sorted({row[1] for row in rows if row[1]})
+    all_platforms = ["All"] + sorted({row[2] for row in rows if row[2]})
+    all_tones = ["All"] + sorted({row[3] for row in rows if row[3]})
+
+    cols = st.columns(3)
+    task_filter = cols[0].selectbox("Filter by task", options=all_tasks)
+    platform_filter = cols[1].selectbox("Filter by platform", options=all_platforms)
+    tone_filter = cols[2].selectbox("Filter by tone", options=all_tones)
+    search_text = st.text_input("Search saved history")
 
     filtered = []
     for row in rows:
-        rid, rtask, rinput, routput, created_at = row
-        haystack = f"{rtask} {rinput or ''} {routput or ''}".lower()
+        rid, rtask, rplatform, rtone, rinput, routput, created_at = row
+        haystack = f"{rtask or ''} {rplatform or ''} {rtone or ''} {rinput or ''} {routput or ''}".lower()
         if task_filter != "All" and rtask != task_filter:
+            continue
+        if platform_filter != "All" and rplatform != platform_filter:
+            continue
+        if tone_filter != "All" and rtone != tone_filter:
             continue
         if search_text and search_text.lower() not in haystack:
             continue
@@ -137,7 +149,7 @@ def render_saved_outputs():
 
     csv_buffer = io.StringIO()
     writer = csv.writer(csv_buffer)
-    writer.writerow(["id", "task", "input", "output", "created_at"])
+    writer.writerow(["id", "task", "platform", "tone", "input", "output", "created_at"])
     for row in filtered:
         writer.writerow(row)
 
@@ -148,10 +160,14 @@ def render_saved_outputs():
         mime="text/csv",
     )
 
-    for rid, rtask, rinput, routput, created_at in filtered:
-        with st.expander(f"{created_at} — {rtask}"):
-            st.markdown(f"**Input:** {rinput}")
-            st.markdown("**Output:**")
+    for rid, rtask, rplatform, rtone, rinput, routput, created_at in filtered:
+        with st.expander(f"{created_at} — {rtask} | {rplatform} | {rtone}"):
+            st.markdown(f"**Task:** {rtask}")
+            st.markdown(f"**Platform:** {rplatform}")
+            st.markdown(f"**Tone:** {rtone}")
+            st.markdown(f"**Prompt:**")
+            st.write(rinput)
+            st.markdown("**Generated output:**")
             st.write(routput)
 
 
@@ -340,7 +356,7 @@ def main():
 
                 if save_to_db:
                     try:
-                        db.save_result(f"{task} | {platform} | {tone}", user_input, result)
+                        db.save_result(task, platform, tone, user_input, result)
                         st.success("Saved result to local database.")
                     except Exception as exc:
                         st.warning(f"Could not save result: {exc}")
