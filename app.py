@@ -204,6 +204,14 @@ def main():
         ["Friendly", "Playful", "Bold", "Professional", "Authentic Southern", "Urgent"],
     )
     num = st.sidebar.slider("Number of results", min_value=1, max_value=10, value=3)
+    cost_per_1k = st.sidebar.number_input(
+        "Estimated cost per 1K tokens ($)",
+        min_value=0.0001,
+        max_value=0.1000,
+        value=0.0020,
+        step=0.0001,
+        format="%.6f",
+    )
     save_to_db = st.sidebar.checkbox("Save results locally", value=True)
     show_saved = st.sidebar.checkbox("Show saved outputs", value=False)
 
@@ -251,6 +259,18 @@ def main():
 
     user_input = st.text_area(label, value=st.session_state.get("user_input", ""), height=height, key="user_input")
 
+    # Example prompt toolbar for fast demo inputs
+    st.markdown("**Quick demo prompts:**")
+    demo_cols = st.columns(4)
+    if demo_cols[0].button("Weekend brisket special"):
+        st.session_state["user_input"] = "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea"
+    if demo_cols[1].button("Family combo promo"):
+        st.session_state["user_input"] = "Family combo promo with pulled pork, loaded fries, and refreshing sweet tea for the whole crew"
+    if demo_cols[2].button("Catering order promo"):
+        st.session_state["user_input"] = "Catering order promo for graduation parties, office lunches, and large family gatherings"
+    if demo_cols[3].button("Friday event announcement"):
+        st.session_state["user_input"] = "Friday event announcement with live music, drink specials, and late-night BBQ feast"
+
     if not user_input.strip():
         st.warning("Enter some context before generating. The clearer the description, the better the results.")
 
@@ -266,7 +286,9 @@ def main():
                     est_completion_tokens = 500
                     est_total = est_prompt_tokens + est_completion_tokens
                     est_cost = est_total / 1000.0 * float(cost_per_1k)
-                    st.info(f"Estimated tokens: {est_total} (~{est_cost:.4f}$ at ${cost_per_1k:.6f}/1k)")
+                    st.info(
+                        f"Estimated tokens: {est_total}\nEstimated request cost: ${est_cost:.4f}"
+                    )
 
                     result, usage = generate_content(prompt)
                 except Exception as exc:
@@ -284,7 +306,9 @@ def main():
                     completion_t = usage.get("completion_tokens")
                     total_t = usage.get("total_tokens")
                     actual_cost = (total_t or 0) / 1000.0 * float(cost_per_1k)
-                    st.success(f"OpenAI usage — prompt: {prompt_t}, completion: {completion_t}, total: {total_t}. Estimated cost: ${actual_cost:.4f}")
+                    st.success(
+                        f"OpenAI usage — prompt: {prompt_t}, completion: {completion_t}, total: {total_t}. Actual request cost: ${actual_cost:.4f}"
+                    )
 
                 escaped_result = html.escape(result)
                 copy_html = """
@@ -312,7 +336,7 @@ def main():
                 """.format(copy_text=escaped_result)
                 components.html(copy_html, height=100)
 
-                st.markdown("**Tip:** highlight the generated text, then copy it into your social post.")
+                st.markdown("**Tip:** click the button to copy the generated text automatically.")
 
                 if save_to_db:
                     try:
