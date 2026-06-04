@@ -61,3 +61,11 @@ def list_results(limit: int = 100):
     rows = c.fetchall()
     conn.close()
     return rows
+
+
+def delete_result(result_id: int) -> None:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM outputs WHERE id = ?", (result_id,))
+    conn.commit()
+    conn.close()

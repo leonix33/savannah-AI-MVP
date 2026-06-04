@@ -2,6 +2,7 @@ import os
 import io
 import csv
 import html
+from collections import Counter
 from dotenv import load_dotenv
 import streamlit as st
 import streamlit.components.v1 as components
@@ -111,23 +112,90 @@ def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: i
 
 
 def render_saved_outputs():
-    rows = db.list_results(200)
+    rows = db.list_results(500)
     st.subheader("Saved generation history")
     if not rows:
         st.info("No saved outputs yet")
         return
 
-    st.markdown(f"**Total saved entries:** {len(rows)}")
+    for key, default in {
+        "history_task_filter": "All",
+        "history_platform_filter": "All",
+        "history_tone_filter": "All",
+        "history_search": "",
+        "history_page": 1,
+        "history_page_size": 10,
+    }.items():
+        st.session_state.setdefault(key, default)
+
+    def reset_history_page():
+        st.session_state["history_page"] = 1
+
+    def reset_history_filters():
+        st.session_state["history_task_filter"] = "All"
+        st.session_state["history_platform_filter"] = "All"
+        st.session_state["history_tone_filter"] = "All"
+        st.session_state["history_search"] = ""
+        reset_history_page()
 
     all_tasks = ["All"] + sorted({row[1] for row in rows if row[1]})
     all_platforms = ["All"] + sorted({row[2] for row in rows if row[2]})
     all_tones = ["All"] + sorted({row[3] for row in rows if row[3]})
 
-    cols = st.columns(3)
-    task_filter = cols[0].selectbox("Filter by task", options=all_tasks)
-    platform_filter = cols[1].selectbox("Filter by platform", options=all_platforms)
-    tone_filter = cols[2].selectbox("Filter by tone", options=all_tones)
-    search_text = st.text_input("Search saved history")
+    if st.session_state["history_task_filter"] not in all_tasks:
+        st.session_state["history_task_filter"] = "All"
+    if st.session_state["history_platform_filter"] not in all_platforms:
+        st.session_state["history_platform_filter"] = "All"
+    if st.session_state["history_tone_filter"] not in all_tones:
+        st.session_state["history_tone_filter"] = "All"
+
+    task_counts = Counter(row[1] or "Unknown" for row in rows)
+    platform_counts = Counter(row[2] or "Unknown" for row in rows)
+    tone_counts = Counter(row[3] or "Unknown" for row in rows)
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Saved entries", len(rows))
+    metric_cols[1].metric("Tasks", len(task_counts))
+    metric_cols[2].metric("Platforms", len(platform_counts))
+    metric_cols[3].metric("Tones", len(tone_counts))
+
+    with st.expander("Analytics snapshot", expanded=False):
+        analytics_cols = st.columns(3)
+        analytics_cols[0].markdown("**Top tasks**")
+        analytics_cols[0].write(dict(task_counts.most_common(5)))
+        analytics_cols[1].markdown("**Top platforms**")
+        analytics_cols[1].write(dict(platform_counts.most_common(5)))
+        analytics_cols[2].markdown("**Top tones**")
+        analytics_cols[2].write(dict(tone_counts.most_common(5)))
+
+    st.markdown("#### Find saved results")
+    filter_cols = st.columns([1.2, 1.2, 1.2, 1.8])
+    task_filter = filter_cols[0].selectbox(
+        "Task",
+        options=all_tasks,
+        key="history_task_filter",
+        on_change=reset_history_page,
+    )
+    platform_filter = filter_cols[1].selectbox(
+        "Platform",
+        options=all_platforms,
+        key="history_platform_filter",
+        on_change=reset_history_page,
+    )
+    tone_filter = filter_cols[2].selectbox(
+        "Tone",
+        options=all_tones,
+        key="history_tone_filter",
+        on_change=reset_history_page,
+    )
+    search_text = filter_cols[3].text_input(
+        "Search prompt or output",
+        placeholder="Try: brisket, catering, event, hashtag...",
+        key="history_search",
+        on_change=reset_history_page,
+    )
+
+    st.button("Reset history filters", on_click=reset_history_filters)
 
     filtered = []
     for row in rows:
@@ -142,6 +210,8 @@ def render_saved_outputs():
         if search_text and search_text.lower() not in haystack:
             continue
         filtered.append(row)
+
+    st.markdown(f"**Showing {len(filtered)} of {len(rows)} saved entries**")
 
     if not filtered:
         st.warning("No saved results match your filters.")
@@ -160,15 +230,62 @@ def render_saved_outputs():
         mime="text/csv",
     )
 
-    for rid, rtask, rplatform, rtone, rinput, routput, created_at in filtered:
-        with st.expander(f"{created_at} — {rtask} | {rplatform} | {rtone}"):
-            st.markdown(f"**Task:** {rtask}")
-            st.markdown(f"**Platform:** {rplatform}")
-            st.markdown(f"**Tone:** {rtone}")
-            st.markdown(f"**Prompt:**")
-            st.write(rinput)
-            st.markdown("**Generated output:**")
-            st.write(routput)
+    page_cols = st.columns([1, 1, 2])
+    page_size = page_cols[0].selectbox(
+        "Results per page",
+        options=[5, 10, 20, 50],
+        key="history_page_size",
+        on_change=reset_history_page,
+    )
+    total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
+    if st.session_state["history_page"] > total_pages:
+        st.session_state["history_page"] = total_pages
+    page = page_cols[1].number_input(
+        "Page",
+        min_value=1,
+        max_value=total_pages,
+        step=1,
+        key="history_page",
+    )
+    page_cols[2].markdown(f"Page **{page}** of **{total_pages}**")
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    visible_rows = filtered[start:end]
+
+    st.markdown("#### Recent results")
+    for rid, rtask, rplatform, rtone, rinput, routput, created_at in visible_rows:
+        with st.container(border=True):
+            header_cols = st.columns([4, 1])
+            header_cols[0].markdown(f"**{rtask or 'Untitled task'}**")
+            header_cols[0].caption(f"{created_at} | {rplatform or 'No platform'} | {rtone or 'No tone'} | ID {rid}")
+
+            if header_cols[1].button("Delete", key=f"delete_{rid}"):
+                st.session_state["pending_delete_id"] = rid
+
+            if st.session_state.get("pending_delete_id") == rid:
+                st.warning("Delete this saved output? This cannot be undone.")
+                confirm_cols = st.columns(2)
+                if confirm_cols[0].button("Confirm delete", key=f"confirm_delete_{rid}"):
+                    db.delete_result(rid)
+                    st.session_state.pop("pending_delete_id", None)
+                    st.success("Deleted saved output.")
+                    st.rerun()
+                if confirm_cols[1].button("Cancel", key=f"cancel_delete_{rid}"):
+                    st.session_state.pop("pending_delete_id", None)
+                    st.rerun()
+
+            st.markdown("**Original prompt**")
+            st.write(rinput or "_No prompt saved._")
+
+            output_preview = (routput or "").strip()
+            if len(output_preview) > 500:
+                output_preview = f"{output_preview[:500]}..."
+            st.markdown("**Generated output preview**")
+            st.write(output_preview or "_No output saved._")
+
+            with st.expander("View full generated output"):
+                st.write(routput or "_No output saved._")
 
 
 def main():
