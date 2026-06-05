@@ -21,6 +21,42 @@ VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini")
 MAX_IMAGE_SIDE = int(os.environ.get("MAX_IMAGE_SIDE", "1024"))
 IMAGE_JPEG_QUALITY = int(os.environ.get("IMAGE_JPEG_QUALITY", "82"))
 
+PLATFORM_CAMPAIGN_GUIDANCE = {
+    "Facebook": (
+        "Write for a Facebook business Page. Use a community-focused, family/local business tone. "
+        "Use slightly longer captions, invite conversation, and include one engagement question."
+    ),
+    "Instagram": (
+        "Write for Instagram. Use visual storytelling, food-focused emotional language, and a polished aesthetic tone. "
+        "Keep hashtags clean, relevant, and easy to scan."
+    ),
+    "TikTok": (
+        "Write for TikTok. Lead with a strong opening hook, keep copy punchy, and make it feel trend-aware. "
+        "Use short lines, high energy, and a clear action."
+    ),
+}
+
+CAMPAIGN_GOALS = [
+    "Drive catering leads",
+    "Increase weekend traffic",
+    "Promote late-night food",
+    "Increase delivery orders",
+]
+TARGET_AUDIENCES = [
+    "Families",
+    "College students",
+    "BBQ lovers",
+    "Event guests",
+    "Nightlife crowd",
+]
+PROMOTION_TYPES = [
+    "Weekend special",
+    "Catering",
+    "Event",
+    "Delivery promo",
+    "Limited-time special",
+]
+
 
 def init_app():
     try:
@@ -114,6 +150,28 @@ def generate_image_content(prompt: str, image_bytes: bytes, image_mime: str):
 
 
 def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: int) -> str:
+    if task == "Campaign Generator":
+        platform_guidance = PLATFORM_CAMPAIGN_GUIDANCE.get(
+            platform,
+            "Write platform-aware restaurant marketing copy that matches the selected channel and business goal.",
+        )
+        return (
+            "You are the AI marketing strategist for Savannah Smokes, an AI Restaurant Marketing Operating System.\n\n"
+            "Create platform-specific restaurant marketing campaign assets using this campaign brief:\n"
+            f"{user_input}\n\n"
+            f"Selected platform: {platform}\n"
+            f"Tone: {tone}\n"
+            f"Platform behavior: {platform_guidance}\n"
+            f"Number of campaign variations: {n}\n\n"
+            "For each variation, return exactly this structure:\n"
+            "1. Promo angle\n"
+            "2. Platform-specific caption\n"
+            "3. Call-to-action\n"
+            "4. Hashtags\n\n"
+            "Make the campaign business-aware, useful for promoting sales, and specific to Savannah Smokes. "
+            "Avoid generic captions that could belong to any restaurant."
+        )
+
     if task == "Hashtag Generator":
         template = (
             "Generate {n} high-quality hashtags for {platform} posts about: {input}. "
@@ -595,6 +653,7 @@ def main():
     task = st.sidebar.selectbox(
         "Select task",
         [
+            "Campaign Generator",
             "Facebook Reel captions",
             "Short viral hooks",
             "Hashtag Generator",
@@ -607,10 +666,12 @@ def main():
         ],
     )
 
-    platform = st.sidebar.selectbox(
-        "Platform",
-        ["Facebook", "Instagram", "TikTok", "Threads", "LinkedIn", "General"],
+    platform_options = (
+        ["Facebook", "Instagram", "TikTok"]
+        if task == "Campaign Generator"
+        else ["Facebook", "Instagram", "TikTok", "Threads", "LinkedIn", "General"]
     )
+    platform = st.sidebar.selectbox("Platform", platform_options)
     tone = st.sidebar.selectbox(
         "Tone",
         ["Friendly", "Playful", "Bold", "Professional", "Authentic Southern", "Urgent"],
@@ -661,6 +722,10 @@ def main():
             "Customer: Loved the brisket! When's the next pop-up?",
             "Customer: Do you have vegetarian options?",
         ],
+        "Campaign Generator": [
+            "Brisket plate weekend special for local families",
+            "Late-night pulled pork delivery promo for the nightlife crowd",
+        ],
         "Image upload caption generator": [
             "Turn this BBQ photo into a weekend promo with a friendly call-to-action",
             "Write captions that highlight smoky flavor, local pride, and catering availability",
@@ -670,7 +735,10 @@ def main():
         ],
     }
 
-    if task == "Customer comment replies":
+    if task == "Campaign Generator":
+        label = ""
+        height = 0
+    elif task == "Customer comment replies":
         label = "Customer comment:"
         height = 140
     elif task == "Image upload caption generator":
@@ -684,12 +752,41 @@ def main():
     if "user_input" not in st.session_state:
         st.session_state["user_input"] = ""
 
-    opts = examples.get(task, examples["default"])[:3]
-    choice = st.selectbox("Insert example prompt", ["— choose example —"] + opts, key="example_choice")
-    if choice and choice != "— choose example —":
-        st.session_state["user_input"] = choice
+    if task == "Campaign Generator":
+        st.markdown("#### Campaign setup")
+        st.caption("Build a platform-aware campaign from business context, not just a generic caption.")
 
-    user_input = st.text_area(label, value=st.session_state.get("user_input", ""), height=height, key="user_input")
+        menu_item = st.text_input(
+            "Menu item or special",
+            value=st.session_state.get("campaign_menu_item", "Weekend brisket plate"),
+            key="campaign_menu_item",
+        )
+        campaign_cols = st.columns(3)
+        campaign_goal = campaign_cols[0].selectbox("Campaign Goal", CAMPAIGN_GOALS, key="campaign_goal")
+        target_audience = campaign_cols[1].selectbox("Target Audience", TARGET_AUDIENCES, key="target_audience")
+        promotion_type = campaign_cols[2].selectbox("Promotion Type", PROMOTION_TYPES, key="promotion_type")
+        campaign_notes = st.text_area(
+            "Extra business context",
+            placeholder="Example: limited quantities, delivery available, family trays, after-hours orders, catering availability",
+            height=100,
+            key="campaign_notes",
+        )
+        user_input = "\n".join(
+            [
+                f"Menu item or special: {menu_item}",
+                f"Campaign goal: {campaign_goal}",
+                f"Target audience: {target_audience}",
+                f"Promotion type: {promotion_type}",
+                f"Extra business context: {campaign_notes or 'No extra context provided.'}",
+            ]
+        )
+    else:
+        opts = examples.get(task, examples["default"])[:3]
+        choice = st.selectbox("Insert example prompt", ["— choose example —"] + opts, key="example_choice")
+        if choice and choice != "— choose example —":
+            st.session_state["user_input"] = choice
+
+        user_input = st.text_area(label, value=st.session_state.get("user_input", ""), height=height, key="user_input")
 
     uploaded_image = None
     if task == "Image upload caption generator":
@@ -703,25 +800,32 @@ def main():
         if uploaded_image:
             st.image(uploaded_image, caption=f"Uploaded image: {uploaded_image.name}", use_column_width=True)
 
-    # Example prompt toolbar for fast demo inputs
-    st.markdown("**Quick demo prompts:**")
-    demo_cols = st.columns(4)
-    if demo_cols[0].button("Weekend brisket special"):
-        st.session_state["user_input"] = "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea"
-    if demo_cols[1].button("Family combo promo"):
-        st.session_state["user_input"] = "Family combo promo with pulled pork, loaded fries, and refreshing sweet tea for the whole crew"
-    if demo_cols[2].button("Catering order promo"):
-        st.session_state["user_input"] = "Catering order promo for graduation parties, office lunches, and large family gatherings"
-    if demo_cols[3].button("Friday event announcement"):
-        st.session_state["user_input"] = "Friday event announcement with live music, drink specials, and late-night BBQ feast"
+    if task == "Campaign Generator":
+        st.info(PLATFORM_CAMPAIGN_GUIDANCE.get(platform, "Campaign mode will adapt the output to the selected platform."))
+    else:
+        # Example prompt toolbar for fast demo inputs
+        st.markdown("**Quick demo prompts:**")
+        demo_cols = st.columns(4)
+        if demo_cols[0].button("Weekend brisket special"):
+            st.session_state["user_input"] = "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea"
+        if demo_cols[1].button("Family combo promo"):
+            st.session_state["user_input"] = "Family combo promo with pulled pork, loaded fries, and refreshing sweet tea for the whole crew"
+        if demo_cols[2].button("Catering order promo"):
+            st.session_state["user_input"] = "Catering order promo for graduation parties, office lunches, and large family gatherings"
+        if demo_cols[3].button("Friday event announcement"):
+            st.session_state["user_input"] = "Friday event announcement with live music, drink specials, and late-night BBQ feast"
 
-    if task == "Image upload caption generator" and not uploaded_image:
+    if task == "Campaign Generator" and not menu_item.strip():
+        st.warning("Add a menu item or special before generating a campaign.")
+    elif task == "Image upload caption generator" and not uploaded_image:
         st.warning("Upload an image before generating photo-based captions.")
     elif not user_input.strip():
         st.warning("Enter some context before generating. The clearer the description, the better the results.")
 
     if st.button("Generate content"):
-        if task == "Image upload caption generator" and not uploaded_image:
+        if task == "Campaign Generator" and not menu_item.strip():
+            st.error("Please add a menu item or special before generating a campaign.")
+        elif task == "Image upload caption generator" and not uploaded_image:
             st.error("Please upload an image before generating photo-based captions.")
         elif task != "Image upload caption generator" and not user_input.strip():
             st.error("Please add some context or a customer comment before generating.")
@@ -783,8 +887,12 @@ def main():
                         st.markdown("**Copy-friendly output**")
                         st.text_area("Image-generated copy", value=result, height=360)
                 else:
-                    st.subheader("Generated output")
-                    st.text_area("Copy-friendly output", value=result, height=260)
+                    if task == "Campaign Generator":
+                        st.subheader(f"{platform} campaign output")
+                        st.text_area("Platform-aware campaign", value=result, height=320)
+                    else:
+                        st.subheader("Generated output")
+                        st.text_area("Copy-friendly output", value=result, height=260)
 
                 st.download_button("Download result as text", result, file_name="savannah_bbq_result.txt", mime="text/plain")
 
