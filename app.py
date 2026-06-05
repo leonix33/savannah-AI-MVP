@@ -297,6 +297,128 @@ def build_menu_intelligence_prompt(
     )
 
 
+def build_weekly_calendar_prompt(
+    specialties: str,
+    weekly_specials: str,
+    happy_hour: str,
+    delivery_options: str,
+    campaign_goal: str,
+    target_audience: str,
+    platforms: list[str],
+    tone: str,
+) -> str:
+    platform_list = ", ".join(platforms) if platforms else "Facebook, Instagram, TikTok"
+    return (
+        "Create a 7-day restaurant marketing campaign calendar for Savannah Smokes.\n\n"
+        f"Signature items / specialties:\n{specialties or 'Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea'}\n\n"
+        f"Weekly specials:\n{weekly_specials or 'No weekly specials provided'}\n\n"
+        f"Happy hour offers:\n{happy_hour or 'No happy hour offers provided'}\n\n"
+        f"Delivery offers:\n{delivery_options or 'Special delivery, weekly delivery, after-hours delivery, after-club food, and home delivery'}\n\n"
+        f"Campaign goal: {campaign_goal}\n"
+        f"Target audience: {target_audience}\n"
+        f"Platforms to use: {platform_list}\n"
+        f"Tone: {tone}\n\n"
+        "Return exactly 7 days. For each day include:\n"
+        "- Day\n"
+        "- Platform\n"
+        "- Campaign focus\n"
+        "- Caption draft\n"
+        "- Call-to-action\n"
+        "- Hashtags\n"
+        "- Suggested posting time\n"
+        "- Owner prep note\n\n"
+        "Make the plan practical, promotion-focused, and varied across the week. "
+        "Use Facebook for community/family/local posts, Instagram for visual food storytelling, "
+        "and TikTok for short hook-driven ideas. Emphasize tasty, unique, craveable food and business growth."
+    )
+
+
+def render_weekly_campaign_planner(tone: str, cost_per_1k: float):
+    st.subheader("Campaign Calendar / Weekly Planner")
+    st.caption("Generate a 7-day posting plan from specials, happy hour, delivery, and platform goals.")
+
+    with st.form("weekly_campaign_planner_form"):
+        specialties = st.text_area(
+            "Signature items / specialties",
+            value="Brisket, ribs, pulled pork, wings, mac and cheese, cornbread, sweet tea",
+            height=90,
+        )
+        weekly_specials = st.text_area(
+            "Weekly specials",
+            placeholder="Example: Tuesday rib plate, Friday brisket tray, Sunday family combo",
+            height=90,
+        )
+        happy_hour = st.text_area(
+            "Happy hour offers",
+            placeholder="Example: 4-6 PM wings special, loaded fries deal, sweet tea combo",
+            height=90,
+        )
+        delivery_options = st.text_area(
+            "Delivery offers",
+            placeholder="Example: weekly delivery routes, late-night plates, after-club-hours food, home delivery",
+            height=90,
+        )
+        cols = st.columns(2)
+        campaign_goal = cols[0].selectbox("Campaign Goal", CAMPAIGN_GOALS, key="weekly_campaign_goal")
+        target_audience = cols[1].selectbox("Target Audience", TARGET_AUDIENCES, key="weekly_target_audience")
+        platforms = st.multiselect(
+            "Platforms",
+            ["Facebook", "Instagram", "TikTok"],
+            default=["Facebook", "Instagram", "TikTok"],
+        )
+        submitted = st.form_submit_button("Generate 7-day campaign calendar")
+
+    if not submitted:
+        return
+
+    with st.spinner("Building the weekly marketing calendar..."):
+        try:
+            prompt = build_weekly_calendar_prompt(
+                specialties=specialties,
+                weekly_specials=weekly_specials,
+                happy_hour=happy_hour,
+                delivery_options=delivery_options,
+                campaign_goal=campaign_goal,
+                target_audience=target_audience,
+                platforms=platforms,
+                tone=tone,
+            )
+            result, usage = generate_content(prompt)
+        except Exception as exc:
+            st.error("Could not generate weekly campaign calendar.")
+            st.write(str(exc))
+            return
+
+    st.success("7-day campaign calendar generated.")
+    st.text_area("Weekly campaign calendar", value=result, height=460)
+    st.download_button(
+        "Download weekly campaign calendar",
+        result,
+        file_name="savannah_smokes_weekly_campaign_calendar.txt",
+        mime="text/plain",
+    )
+
+    if usage:
+        total_t = usage.get("total_tokens")
+        actual_cost = (total_t or 0) / 1000.0 * float(cost_per_1k)
+        st.caption(f"Usage: {total_t} tokens. Estimated cost: ${actual_cost:.4f}")
+
+    try:
+        saved_input = (
+            f"Specialties: {specialties}\n"
+            f"Weekly specials: {weekly_specials or 'None provided'}\n"
+            f"Happy hour: {happy_hour or 'None provided'}\n"
+            f"Delivery offers: {delivery_options or 'None provided'}\n"
+            f"Campaign goal: {campaign_goal}\n"
+            f"Target audience: {target_audience}\n"
+            f"Platforms: {', '.join(platforms) if platforms else 'None selected'}"
+        )
+        db.save_result("Weekly Campaign Planner", ", ".join(platforms) if platforms else "General", tone, saved_input, result)
+        st.success("Saved weekly campaign calendar to local history.")
+    except Exception as exc:
+        st.warning(f"Could not save weekly campaign calendar: {exc}")
+
+
 def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
     st.subheader("Menu & Specials Lab")
     st.caption("Turn menu items, specials, and customer targets into smarter promotions.")
@@ -695,9 +817,13 @@ def main():
         st.error("OPENAI_API_KEY not found. Add your key to .env and restart the app.")
         st.stop()
 
-    intelligence_tab, social_tab = st.tabs(["Menu & Specials Lab", "Social Media Setup"])
+    intelligence_tab, planner_tab, social_tab = st.tabs(
+        ["Menu & Specials Lab", "Weekly Planner", "Social Media Setup"]
+    )
     with intelligence_tab:
         render_menu_specials_lab(platform, tone, cost_per_1k)
+    with planner_tab:
+        render_weekly_campaign_planner(tone, cost_per_1k)
     with social_tab:
         render_social_media_integration_guide()
 
