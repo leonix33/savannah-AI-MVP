@@ -3,6 +3,7 @@ import io
 import csv
 import html
 import base64
+import tempfile
 from collections import Counter
 from dotenv import load_dotenv
 import streamlit as st
@@ -20,6 +21,9 @@ TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-3.5-turbo")
 VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini")
 MAX_IMAGE_SIDE = int(os.environ.get("MAX_IMAGE_SIDE", "1024"))
 IMAGE_JPEG_QUALITY = int(os.environ.get("IMAGE_JPEG_QUALITY", "82"))
+MAX_VIDEO_SECONDS = int(os.environ.get("MAX_VIDEO_SECONDS", "30"))
+MAX_VIDEO_UPLOAD_MB = int(os.environ.get("MAX_VIDEO_UPLOAD_MB", "50"))
+VIDEO_FRAME_COUNT = int(os.environ.get("VIDEO_FRAME_COUNT", "3"))
 
 PLATFORM_CAMPAIGN_GUIDANCE = {
     "Facebook": (
@@ -115,6 +119,68 @@ def optimize_image_for_vision(image_bytes: bytes) -> tuple[bytes, str]:
     return buffer.getvalue(), "image/jpeg"
 
 
+def extract_video_frames_for_vision(video_bytes: bytes, suffix: str) -> tuple[list[bytes], float]:
+    try:
+        cv2 = __import__("cv2")
+    except ImportError as exc:
+        raise RuntimeError("Video support requires opencv-python-headless to be installed.") from exc
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(video_bytes)
+        tmp_path = tmp.name
+
+    capture = None
+    try:
+        capture = cv2.VideoCapture(tmp_path)
+        if not capture.isOpened():
+            raise RuntimeError("Could not read uploaded video.")
+
+        fps = capture.get(cv2.CAP_PROP_FPS) or 0
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        duration = frame_count / fps if fps else 0
+
+        if duration and duration > MAX_VIDEO_SECONDS:
+            raise RuntimeError(f"Video is {duration:.1f}s. Please upload a video {MAX_VIDEO_SECONDS}s or shorter.")
+
+        if frame_count <= 0:
+            raise RuntimeError("Could not find frames in uploaded video.")
+
+        sample_count = max(1, min(VIDEO_FRAME_COUNT, frame_count))
+        if sample_count == 1:
+            frame_indices = [0]
+        else:
+            frame_indices = [
+                round(i * (frame_count - 1) / (sample_count - 1))
+                for i in range(sample_count)
+            ]
+
+        frames = []
+        for frame_index in frame_indices:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            ok, frame = capture.read()
+            if not ok:
+                continue
+
+            ok, encoded = cv2.imencode(".jpg", frame)
+            if not ok:
+                continue
+
+            optimized_frame, _ = optimize_image_for_vision(encoded.tobytes())
+            frames.append(optimized_frame)
+
+        if not frames:
+            raise RuntimeError("Could not extract usable frames from uploaded video.")
+
+        return frames, duration
+    finally:
+        if capture is not None:
+            capture.release()
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def generate_image_content(prompt: str, image_bytes: bytes, image_mime: str):
     image_data = base64.b64encode(image_bytes).decode("utf-8")
     image_url = f"data:{image_mime};base64,{image_data}"
@@ -147,6 +213,36 @@ def generate_image_content(prompt: str, image_bytes: bytes, image_mime: str):
         return content, usage
     except Exception as exc:
         raise RuntimeError(f"OpenAI image generation failed: {exc}") from exc
+
+
+def generate_video_content(prompt: str, frames: list[bytes]):
+    content = [{"type": "text", "text": prompt}]
+    for frame in frames:
+        image_data = base64.b64encode(frame).decode("utf-8")
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}})
+
+    try:
+        response = openai.ChatCompletion.create(
+            model=VISION_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a video marketing assistant for Savannah Smokes, "
+                        "a local BBQ food truck. Infer the short video from sampled frames "
+                        "and write practical, social-ready restaurant marketing copy."
+                    ),
+                },
+                {"role": "user", "content": content},
+            ],
+            temperature=0.8,
+            max_tokens=650,
+        )
+        content_text = response["choices"][0]["message"]["content"].strip()
+        usage = response.get("usage", {})
+        return content_text, usage
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI video generation failed: {exc}") from exc
 
 
 def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: int) -> str:
@@ -194,6 +290,23 @@ def build_task_prompt(task: str, user_input: str, tone: str, platform: str, n: i
             "Use a {tone} tone. Owner notes or campaign context: {input}. "
             "For each option, include a short caption, a clear call-to-action, and 5-8 relevant hashtags. "
             "Keep the copy accurate to what is visible in the image and avoid inventing details."
+        )
+        return make_prompt(
+            task=task,
+            template=template,
+            user_input=user_input or "No extra notes provided.",
+            tone=tone,
+            platform=platform,
+            n=n,
+        )
+
+    if task == "Video upload caption generator":
+        template = (
+            "Analyze the sampled frames from the uploaded short video and create {n} marketing options for {platform}. "
+            "Use a {tone} tone. Owner notes or campaign context: {input}. "
+            "For each option, include a strong opening hook, short caption, call-to-action, and 5-8 hashtags. "
+            "If the platform is TikTok, make the hook especially punchy and trend-friendly. "
+            "Do not claim motion or details that are not visible from the sampled frames."
         )
         return make_prompt(
             task=task,
@@ -785,6 +898,7 @@ def main():
             "Catering promotions",
             "Email campaigns",
             "Image upload caption generator",
+            "Video upload caption generator",
         ],
     )
 
@@ -856,6 +970,10 @@ def main():
             "Turn this BBQ photo into a weekend promo with a friendly call-to-action",
             "Write captions that highlight smoky flavor, local pride, and catering availability",
         ],
+        "Video upload caption generator": [
+            "Turn this short BBQ clip into TikTok hooks and social captions",
+            "Promote this food truck video for late-night orders and delivery",
+        ],
         "default": [
             "Weekend smoked brisket special with ribs, mac and cheese, cornbread, and sweet tea",
         ],
@@ -869,6 +987,9 @@ def main():
         height = 140
     elif task == "Image upload caption generator":
         label = "Optional notes for this image:"
+        height = 120
+    elif task == "Video upload caption generator":
+        label = "Optional notes for this video:"
         height = 120
     else:
         label = "Describe the reel, post, or promo context:"
@@ -915,6 +1036,7 @@ def main():
         user_input = st.text_area(label, value=st.session_state.get("user_input", ""), height=height, key="user_input")
 
     uploaded_image = None
+    uploaded_video = None
     if task == "Image upload caption generator":
         st.markdown("#### Upload a photo")
         st.caption("Use a BBQ plate, food truck setup, event scene, or branded promo image.")
@@ -925,6 +1047,18 @@ def main():
         )
         if uploaded_image:
             st.image(uploaded_image, caption=f"Uploaded image: {uploaded_image.name}", use_column_width=True)
+    elif task == "Video upload caption generator":
+        st.markdown("#### Upload a short video")
+        st.caption(f"Recommended: 5-15 seconds. Hard limit: {MAX_VIDEO_SECONDS} seconds or {MAX_VIDEO_UPLOAD_MB} MB.")
+        uploaded_video = st.file_uploader(
+            "Upload short BBQ video",
+            type=["mp4", "mov", "m4v"],
+            help="Upload a short food, smoker, food truck, happy hour, or event clip.",
+        )
+        if uploaded_video:
+            video_size_mb = len(uploaded_video.getvalue()) / (1024 * 1024)
+            st.video(uploaded_video)
+            st.caption(f"Uploaded video: {uploaded_video.name} ({video_size_mb:.1f} MB)")
 
     if task == "Campaign Generator":
         st.info(PLATFORM_CAMPAIGN_GUIDANCE.get(platform, "Campaign mode will adapt the output to the selected platform."))
@@ -945,6 +1079,8 @@ def main():
         st.warning("Add a menu item or special before generating a campaign.")
     elif task == "Image upload caption generator" and not uploaded_image:
         st.warning("Upload an image before generating photo-based captions.")
+    elif task == "Video upload caption generator" and not uploaded_video:
+        st.warning("Upload a short video before generating video-based captions.")
     elif not user_input.strip():
         st.warning("Enter some context before generating. The clearer the description, the better the results.")
 
@@ -953,7 +1089,9 @@ def main():
             st.error("Please add a menu item or special before generating a campaign.")
         elif task == "Image upload caption generator" and not uploaded_image:
             st.error("Please upload an image before generating photo-based captions.")
-        elif task != "Image upload caption generator" and not user_input.strip():
+        elif task == "Video upload caption generator" and not uploaded_video:
+            st.error("Please upload a short video before generating video-based captions.")
+        elif task not in ("Image upload caption generator", "Video upload caption generator") and not user_input.strip():
             st.error("Please add some context or a customer comment before generating.")
         else:
             with st.spinner("Generating your copy..."):
@@ -969,6 +1107,7 @@ def main():
                     )
 
                     optimized_image_message = None
+                    video_processing_message = None
                     if task == "Image upload caption generator":
                         original_image_bytes = uploaded_image.getvalue()
                         image_bytes, image_mime = optimize_image_for_vision(original_image_bytes)
@@ -980,6 +1119,20 @@ def main():
                             f"({reduction_pct:.0f}% smaller)."
                         )
                         result, usage = generate_image_content(prompt, image_bytes, image_mime)
+                    elif task == "Video upload caption generator":
+                        video_bytes = uploaded_video.getvalue()
+                        video_size_mb = len(video_bytes) / (1024 * 1024)
+                        if video_size_mb > MAX_VIDEO_UPLOAD_MB:
+                            raise RuntimeError(
+                                f"Video is {video_size_mb:.1f} MB. Please upload a video {MAX_VIDEO_UPLOAD_MB} MB or smaller."
+                            )
+
+                        suffix = os.path.splitext(uploaded_video.name)[1] or ".mp4"
+                        frames, duration = extract_video_frames_for_vision(video_bytes, suffix)
+                        video_processing_message = (
+                            f"Sampled {len(frames)} frame(s) from a {duration:.1f}s video for AI analysis."
+                        )
+                        result, usage = generate_video_content(prompt, frames)
                     else:
                         result, usage = generate_content(prompt)
                 except Exception as exc:
@@ -993,7 +1146,13 @@ def main():
                     "tone": tone,
                     "input": user_input,
                     "result": result,
-                    "media_name": uploaded_image.name if task == "Image upload caption generator" and uploaded_image else None,
+                    "media_name": (
+                        uploaded_image.name
+                        if task == "Image upload caption generator" and uploaded_image
+                        else uploaded_video.name
+                        if task == "Video upload caption generator" and uploaded_video
+                        else None
+                    ),
                 }
                 st.session_state["show_prepared_facebook_post"] = False
 
@@ -1012,6 +1171,19 @@ def main():
                     with output_cols[1]:
                         st.markdown("**Copy-friendly output**")
                         st.text_area("Image-generated copy", value=result, height=360)
+                elif task == "Video upload caption generator":
+                    st.subheader("Generated from uploaded video")
+                    if video_processing_message:
+                        st.caption(video_processing_message)
+
+                    output_cols = st.columns([1, 1.2])
+                    with output_cols[0]:
+                        st.markdown("**Source video**")
+                        st.video(uploaded_video)
+                        st.info("Generated from sampled video frames")
+                    with output_cols[1]:
+                        st.markdown("**Copy-friendly output**")
+                        st.text_area("Video-generated copy", value=result, height=360)
                 else:
                     if task == "Campaign Generator":
                         st.subheader(f"{platform} campaign output")
@@ -1065,6 +1237,8 @@ def main():
                         saved_input = user_input
                         if task == "Image upload caption generator" and uploaded_image:
                             saved_input = f"Image: {uploaded_image.name}\nNotes: {user_input or 'No extra notes provided.'}"
+                        elif task == "Video upload caption generator" and uploaded_video:
+                            saved_input = f"Video: {uploaded_video.name}\nNotes: {user_input or 'No extra notes provided.'}"
                         db.save_result(task, platform, tone, saved_input, result)
                         st.success("Saved result to local database.")
                     except Exception as exc:
