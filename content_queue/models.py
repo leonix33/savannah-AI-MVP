@@ -1,4 +1,4 @@
-QUEUE_STATUSES = ("draft", "scheduled", "posted", "failed")
+QUEUE_STATUSES = ("draft", "scheduled", "processing", "posted", "failed")
 
 
 def normalize_queue_status(status: str) -> str:

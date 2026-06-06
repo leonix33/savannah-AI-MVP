@@ -6,6 +6,7 @@ import base64
 import tempfile
 import re
 from collections import Counter
+from datetime import date, datetime, time
 from dotenv import load_dotenv
 import streamlit as st
 import streamlit.components.v1 as components
@@ -13,6 +14,7 @@ import openai
 from PIL import Image, ImageOps
 from utils import db
 from social.facebook_client import validate_facebook_config
+from scheduler.runner import recommend_time_for_platform, simulate_scheduler_run
 
 load_dotenv()
 
@@ -393,6 +395,38 @@ def infer_media_type(task: str, media_name: str | None) -> str:
     return "text"
 
 
+def parse_queue_date(value: str | None):
+    if not value:
+        return date.today()
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return date.today()
+
+
+def parse_queue_time(value: str | None, platform: str | None = None):
+    time_value = value or recommend_time_for_platform(platform or "")
+    try:
+        return time.fromisoformat(time_value)
+    except ValueError:
+        return time(18, 0)
+
+
+def format_time_label(value: str | None) -> str:
+    if not value:
+        return "Unscheduled"
+    try:
+        return datetime.strptime(value, "%H:%M").strftime("%-I:%M %p")
+    except ValueError:
+        return value
+
+
+def build_campaign_title(caption: str | None) -> str:
+    first_line = (caption or "").strip().splitlines()[0] if (caption or "").strip() else "Untitled campaign"
+    cleaned = re.sub(r"^[#*\-\d\.\s]+", "", first_line).strip()
+    return cleaned[:80] or "Untitled campaign"
+
+
 def render_content_queue():
     try:
         render_content_queue_body()
@@ -449,33 +483,87 @@ def render_content_queue_body():
         return
 
     rows = db.list_queue_items(100)
+    render_campaign_calendar(rows)
+
     st.markdown("#### Queued posts")
     if not rows:
         st.info("No queued posts yet.")
         return
 
-    for queue_id, platform, caption, hashtags, media_type, media_name, status, scheduled_time, created_at in rows:
+    status_options = ["draft", "scheduled", "processing", "posted", "failed"]
+    timezone_options = ["America/New_York", "America/Chicago", "America/Los_Angeles", "UTC"]
+
+    for (
+        queue_id,
+        platform,
+        caption,
+        hashtags,
+        media_type,
+        media_name,
+        status,
+        scheduled_date,
+        scheduled_time,
+        timezone,
+        created_at,
+    ) in rows:
         with st.container(border=True):
-            header_cols = st.columns([3, 1, 1])
+            header_cols = st.columns([3, 1.2, 1.2])
             header_cols[0].markdown(f"**{platform or 'General'}** | {status or 'draft'}")
             header_cols[0].caption(
                 f"ID {queue_id} | {media_type or 'text'} | {media_name or 'No media'} | Created {created_at}"
             )
 
-            scheduled_key = f"queue_scheduled_time_{queue_id}"
-            scheduled_value = header_cols[1].text_input(
-                "Scheduled time",
-                value=scheduled_time or "",
-                key=scheduled_key,
-                placeholder="YYYY-MM-DD HH:MM",
+            selected_status = header_cols[1].selectbox(
+                "Status",
+                status_options,
+                index=status_options.index(status) if status in status_options else 0,
+                key=f"queue_status_{queue_id}",
+            )
+            selected_timezone = header_cols[2].selectbox(
+                "Timezone",
+                timezone_options,
+                index=timezone_options.index(timezone) if timezone in timezone_options else 0,
+                key=f"queue_timezone_{queue_id}",
             )
 
-            if header_cols[2].button("Mark scheduled", key=f"queue_schedule_{queue_id}"):
+            schedule_cols = st.columns([1, 1, 1, 1])
+            selected_date = schedule_cols[0].date_input(
+                "Date",
+                value=parse_queue_date(scheduled_date),
+                key=f"queue_date_{queue_id}",
+            )
+            selected_time = schedule_cols[1].time_input(
+                "Time",
+                value=parse_queue_time(scheduled_time, platform),
+                key=f"queue_time_{queue_id}",
+            )
+
+            if schedule_cols[2].button("Schedule / Reschedule", key=f"queue_schedule_{queue_id}"):
                 if not hasattr(db, "update_queue_status"):
                     st.warning("Queue scheduling is not ready yet. Please refresh after deployment finishes.")
                     return
-                db.update_queue_status(queue_id, "scheduled", scheduled_value)
+                db.update_queue_status(
+                    queue_id,
+                    "scheduled",
+                    selected_date.isoformat(),
+                    selected_time.strftime("%H:%M"),
+                    selected_timezone,
+                )
                 st.success("Queued post marked as scheduled.")
+                st.rerun()
+
+            if schedule_cols[3].button("Update status", key=f"queue_status_update_{queue_id}"):
+                if not hasattr(db, "update_queue_status"):
+                    st.warning("Queue status updates are not ready yet. Please refresh after deployment finishes.")
+                    return
+                db.update_queue_status(
+                    queue_id,
+                    selected_status,
+                    selected_date.isoformat() if selected_status != "draft" else scheduled_date,
+                    selected_time.strftime("%H:%M") if selected_status != "draft" else scheduled_time,
+                    selected_timezone,
+                )
+                st.success("Queued post status updated.")
                 st.rerun()
 
             caption_preview = (caption or "").strip()
@@ -494,6 +582,35 @@ def render_content_queue_body():
                 db.delete_queue_item(queue_id)
                 st.success("Deleted queued post.")
                 st.rerun()
+
+
+def render_campaign_calendar(rows):
+    st.markdown("#### Campaign Calendar")
+    if not rows:
+        st.info("Schedule queued posts to see them on the campaign calendar.")
+        return
+
+    scheduled_rows = [row for row in rows if row[6] in ("scheduled", "processing", "posted", "failed")]
+    if not scheduled_rows:
+        st.info("No scheduled campaign posts yet.")
+        return
+
+    simulation = simulate_scheduler_run()
+    st.caption(f"{simulation['message']} Scheduled posts detected: {simulation['scheduled_count']}.")
+
+    for row in sorted(scheduled_rows, key=lambda item: (item[7] or "9999-12-31", item[8] or "99:99")):
+        queue_id, platform, caption, _hashtags, _media_type, _media_name, status, scheduled_date, scheduled_time, timezone, _created_at = row
+        try:
+            day_label = date.fromisoformat(scheduled_date).strftime("%A")
+        except (TypeError, ValueError):
+            day_label = "Unscheduled day"
+
+        calendar_cols = st.columns([1, 1, 2.2, 1, 1])
+        calendar_cols[0].markdown(f"**{day_label}**")
+        calendar_cols[1].write(platform or "General")
+        calendar_cols[2].write(build_campaign_title(caption))
+        calendar_cols[3].write(format_time_label(scheduled_time))
+        calendar_cols[4].caption(f"{status} | {timezone or 'America/New_York'} | #{queue_id}")
 
 
 def build_menu_intelligence_prompt(
