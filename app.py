@@ -4,6 +4,7 @@ import csv
 import html
 import base64
 import tempfile
+import re
 from collections import Counter
 from dotenv import load_dotenv
 import streamlit as st
@@ -11,6 +12,7 @@ import streamlit.components.v1 as components
 import openai
 from PIL import Image, ImageOps
 from utils import db
+from social.facebook_client import validate_facebook_config
 
 load_dotenv()
 
@@ -376,6 +378,98 @@ def build_facebook_post_package(generation: dict) -> str:
     )
 
 
+def extract_hashtags(text: str) -> str:
+    tags = re.findall(r"#\w+", text or "")
+    return " ".join(dict.fromkeys(tags))
+
+
+def infer_media_type(task: str, media_name: str | None) -> str:
+    if task == "Image upload caption generator":
+        return "image"
+    if task == "Video upload caption generator":
+        return "video"
+    if media_name:
+        return "media"
+    return "text"
+
+
+def render_content_queue():
+    st.subheader("Content Queue")
+    st.caption("Phase 1 automation foundation: queue content locally before future scheduling and publishing.")
+
+    latest_generation = st.session_state.get("latest_generation")
+    if latest_generation:
+        with st.container(border=True):
+            st.markdown("**Latest generated content**")
+            st.caption(
+                f"{latest_generation.get('platform', 'Unknown platform')} | "
+                f"{latest_generation.get('task', 'Unknown task')}"
+            )
+            preview = (latest_generation.get("result") or "").strip()
+            if len(preview) > 500:
+                preview = f"{preview[:500]}..."
+            st.write(preview or "_No generated content available._")
+
+            if st.button("Add latest generated content to queue"):
+                caption = latest_generation.get("result") or ""
+                queue_id = db.add_queue_item(
+                    platform=latest_generation.get("platform") or "General",
+                    caption=caption,
+                    hashtags=extract_hashtags(caption),
+                    media_type=infer_media_type(
+                        latest_generation.get("task") or "",
+                        latest_generation.get("media_name"),
+                    ),
+                    media_name=latest_generation.get("media_name"),
+                    status="draft",
+                )
+                st.success(f"Added to content queue as draft #{queue_id}.")
+                st.rerun()
+    else:
+        st.info("Generate content first, then add it to the queue here.")
+
+    rows = db.list_queue_items(100)
+    st.markdown("#### Queued posts")
+    if not rows:
+        st.info("No queued posts yet.")
+        return
+
+    for queue_id, platform, caption, hashtags, media_type, media_name, status, scheduled_time, created_at in rows:
+        with st.container(border=True):
+            header_cols = st.columns([3, 1, 1])
+            header_cols[0].markdown(f"**{platform or 'General'}** | {status or 'draft'}")
+            header_cols[0].caption(
+                f"ID {queue_id} | {media_type or 'text'} | {media_name or 'No media'} | Created {created_at}"
+            )
+
+            scheduled_key = f"queue_scheduled_time_{queue_id}"
+            scheduled_value = header_cols[1].text_input(
+                "Scheduled time",
+                value=scheduled_time or "",
+                key=scheduled_key,
+                placeholder="YYYY-MM-DD HH:MM",
+            )
+
+            if header_cols[2].button("Mark scheduled", key=f"queue_schedule_{queue_id}"):
+                db.update_queue_status(queue_id, "scheduled", scheduled_value)
+                st.success("Queued post marked as scheduled.")
+                st.rerun()
+
+            caption_preview = (caption or "").strip()
+            if len(caption_preview) > 700:
+                caption_preview = f"{caption_preview[:700]}..."
+            st.markdown("**Caption**")
+            st.write(caption_preview or "_No caption saved._")
+
+            if hashtags:
+                st.caption(f"Hashtags: {hashtags}")
+
+            if st.button("Delete queued post", key=f"queue_delete_{queue_id}"):
+                db.delete_queue_item(queue_id)
+                st.success("Deleted queued post.")
+                st.rerun()
+
+
 def build_menu_intelligence_prompt(
     specialties: str,
     weekly_specials: str,
@@ -503,6 +597,15 @@ def render_weekly_campaign_planner(tone: str, cost_per_1k: float):
             return
 
     st.success("7-day campaign calendar generated.")
+    st.session_state["latest_generation"] = {
+        "task": "Weekly Campaign Planner",
+        "platform": ", ".join(platforms) if platforms else "General",
+        "tone": tone,
+        "input": campaign_goal,
+        "result": result,
+        "media_name": None,
+    }
+    st.session_state["show_prepared_facebook_post"] = False
     st.text_area("Weekly campaign calendar", value=result, height=460)
     st.download_button(
         "Download weekly campaign calendar",
@@ -592,6 +695,15 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
             return
 
     st.success("Menu marketing ideas generated.")
+    st.session_state["latest_generation"] = {
+        "task": "Menu & Specials Lab",
+        "platform": platform,
+        "tone": tone,
+        "input": goal,
+        "result": result,
+        "media_name": None,
+    }
+    st.session_state["show_prepared_facebook_post"] = False
     st.text_area("Menu intelligence output", value=result, height=360)
     st.download_button(
         "Download menu marketing plan",
@@ -623,6 +735,12 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
 def render_social_media_integration_guide():
     st.subheader("Social Media Integration Path")
     st.caption("A business-safe path from generated content to future Facebook/Instagram publishing.")
+
+    facebook_config = validate_facebook_config()
+    if facebook_config["ready"]:
+        st.success("Facebook placeholder config is present. Real posting is still disabled.")
+    else:
+        st.info(f"Facebook placeholder only. Missing config: {', '.join(facebook_config['missing'])}")
 
     st.markdown(
         """
@@ -931,13 +1049,15 @@ def main():
         st.error("OPENAI_API_KEY not found. Add your key to .env and restart the app.")
         st.stop()
 
-    intelligence_tab, planner_tab, social_tab = st.tabs(
-        ["Menu & Specials Lab", "Weekly Planner", "Social Media Setup"]
+    intelligence_tab, planner_tab, queue_tab, social_tab = st.tabs(
+        ["Menu & Specials Lab", "Weekly Planner", "Content Queue", "Social Media Setup"]
     )
     with intelligence_tab:
         render_menu_specials_lab(platform, tone, cost_per_1k)
     with planner_tab:
         render_weekly_campaign_planner(tone, cost_per_1k)
+    with queue_tab:
+        render_content_queue()
     with social_tab:
         render_social_media_integration_guide()
 

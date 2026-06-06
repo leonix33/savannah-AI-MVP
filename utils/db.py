@@ -1,6 +1,8 @@
 import os
 import sqlite3
 
+from content_queue.models import normalize_queue_status
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "history.db")
 
 
@@ -21,6 +23,21 @@ def init_db():
             tone TEXT,
             input TEXT,
             output TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS content_queue (
+            id INTEGER PRIMARY KEY,
+            platform TEXT,
+            caption TEXT,
+            hashtags TEXT,
+            media_type TEXT,
+            media_name TEXT,
+            status TEXT DEFAULT 'draft',
+            scheduled_time TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -67,5 +84,74 @@ def delete_result(result_id: int) -> None:
     conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM outputs WHERE id = ?", (result_id,))
+    conn.commit()
+    conn.close()
+
+
+def add_queue_item(
+    platform: str,
+    caption: str,
+    hashtags: str = "",
+    media_type: str = "text",
+    media_name: str | None = None,
+    status: str = "draft",
+    scheduled_time: str | None = None,
+) -> int:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO content_queue
+            (platform, caption, hashtags, media_type, media_name, status, scheduled_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            platform,
+            caption,
+            hashtags,
+            media_type,
+            media_name,
+            normalize_queue_status(status),
+            scheduled_time,
+        ),
+    )
+    queue_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return queue_id
+
+
+def list_queue_items(limit: int = 100):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, platform, caption, hashtags, media_type, media_name, status, scheduled_time, created_at
+        FROM content_queue
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def update_queue_status(queue_id: int, status: str, scheduled_time: str | None = None) -> None:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE content_queue SET status = ?, scheduled_time = ? WHERE id = ?",
+        (normalize_queue_status(status), scheduled_time, queue_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_queue_item(queue_id: int) -> None:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM content_queue WHERE id = ?", (queue_id,))
     conn.commit()
     conn.close()
