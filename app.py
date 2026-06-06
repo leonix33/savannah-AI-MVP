@@ -394,8 +394,20 @@ def infer_media_type(task: str, media_name: str | None) -> str:
 
 
 def render_content_queue():
+    try:
+        render_content_queue_body()
+    except Exception as exc:
+        st.subheader("Content Queue")
+        st.warning("Content Queue is temporarily unavailable. Generation, copy, and download still work.")
+        st.caption(str(exc))
+
+
+def render_content_queue_body():
     st.subheader("Content Queue")
     st.caption("Phase 1 automation foundation: queue content locally before future scheduling and publishing.")
+
+    if hasattr(db, "ensure_content_queue_table"):
+        db.ensure_content_queue_table()
 
     latest_generation = st.session_state.get("latest_generation")
     if latest_generation:
@@ -411,6 +423,10 @@ def render_content_queue():
             st.write(preview or "_No generated content available._")
 
             if st.button("Add latest generated content to queue"):
+                if not hasattr(db, "add_queue_item"):
+                    st.warning("Queue storage is not ready yet. Please refresh after deployment finishes.")
+                    return
+
                 caption = latest_generation.get("result") or ""
                 queue_id = db.add_queue_item(
                     platform=latest_generation.get("platform") or "General",
@@ -427,6 +443,10 @@ def render_content_queue():
                 st.rerun()
     else:
         st.info("Generate content first, then add it to the queue here.")
+
+    if not hasattr(db, "list_queue_items"):
+        st.info("Queue storage is still initializing. Refresh shortly to view queued posts.")
+        return
 
     rows = db.list_queue_items(100)
     st.markdown("#### Queued posts")
@@ -451,6 +471,9 @@ def render_content_queue():
             )
 
             if header_cols[2].button("Mark scheduled", key=f"queue_schedule_{queue_id}"):
+                if not hasattr(db, "update_queue_status"):
+                    st.warning("Queue scheduling is not ready yet. Please refresh after deployment finishes.")
+                    return
                 db.update_queue_status(queue_id, "scheduled", scheduled_value)
                 st.success("Queued post marked as scheduled.")
                 st.rerun()
@@ -465,6 +488,9 @@ def render_content_queue():
                 st.caption(f"Hashtags: {hashtags}")
 
             if st.button("Delete queued post", key=f"queue_delete_{queue_id}"):
+                if not hasattr(db, "delete_queue_item"):
+                    st.warning("Queue deletion is not ready yet. Please refresh after deployment finishes.")
+                    return
                 db.delete_queue_item(queue_id)
                 st.success("Deleted queued post.")
                 st.rerun()
@@ -1057,7 +1083,11 @@ def main():
     with planner_tab:
         render_weekly_campaign_planner(tone, cost_per_1k)
     with queue_tab:
-        render_content_queue()
+        try:
+            render_content_queue()
+        except Exception as exc:
+            st.warning("Content Queue could not load. Other app features are still available.")
+            st.caption(str(exc))
     with social_tab:
         render_social_media_integration_guide()
 

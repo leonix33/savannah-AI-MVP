@@ -1,7 +1,12 @@
 import os
 import sqlite3
 
-from content_queue.models import normalize_queue_status
+try:
+    from content_queue.models import normalize_queue_status
+except ImportError:
+    def normalize_queue_status(status: str) -> str:
+        normalized = (status or "draft").strip().lower()
+        return normalized if normalized in ("draft", "scheduled", "posted", "failed") else "draft"
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "history.db")
 
@@ -27,7 +32,24 @@ def init_db():
         )
         """
     )
-    c.execute(
+    _create_content_queue_table(c)
+    conn.commit()
+    _ensure_columns(c)
+    conn.commit()
+    conn.close()
+
+
+def _ensure_columns(cursor):
+    cursor.execute("PRAGMA table_info(outputs)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "platform" not in existing:
+        cursor.execute("ALTER TABLE outputs ADD COLUMN platform TEXT")
+    if "tone" not in existing:
+        cursor.execute("ALTER TABLE outputs ADD COLUMN tone TEXT")
+
+
+def _create_content_queue_table(cursor) -> None:
+    cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS content_queue (
             id INTEGER PRIMARY KEY,
@@ -42,19 +64,14 @@ def init_db():
         )
         """
     )
-    conn.commit()
-    _ensure_columns(c)
+
+
+def ensure_content_queue_table() -> None:
+    conn = get_conn()
+    c = conn.cursor()
+    _create_content_queue_table(c)
     conn.commit()
     conn.close()
-
-
-def _ensure_columns(cursor):
-    cursor.execute("PRAGMA table_info(outputs)")
-    existing = {row[1] for row in cursor.fetchall()}
-    if "platform" not in existing:
-        cursor.execute("ALTER TABLE outputs ADD COLUMN platform TEXT")
-    if "tone" not in existing:
-        cursor.execute("ALTER TABLE outputs ADD COLUMN tone TEXT")
 
 
 def save_result(task: str, platform: str, tone: str, input_text: str, output_text: str):
@@ -99,6 +116,7 @@ def add_queue_item(
 ) -> int:
     conn = get_conn()
     c = conn.cursor()
+    _create_content_queue_table(c)
     c.execute(
         """
         INSERT INTO content_queue
@@ -124,6 +142,7 @@ def add_queue_item(
 def list_queue_items(limit: int = 100):
     conn = get_conn()
     c = conn.cursor()
+    _create_content_queue_table(c)
     c.execute(
         """
         SELECT id, platform, caption, hashtags, media_type, media_name, status, scheduled_time, created_at
@@ -141,6 +160,7 @@ def list_queue_items(limit: int = 100):
 def update_queue_status(queue_id: int, status: str, scheduled_time: str | None = None) -> None:
     conn = get_conn()
     c = conn.cursor()
+    _create_content_queue_table(c)
     c.execute(
         "UPDATE content_queue SET status = ?, scheduled_time = ? WHERE id = ?",
         (normalize_queue_status(status), scheduled_time, queue_id),
@@ -152,6 +172,7 @@ def update_queue_status(queue_id: int, status: str, scheduled_time: str | None =
 def delete_queue_item(queue_id: int) -> None:
     conn = get_conn()
     c = conn.cursor()
+    _create_content_queue_table(c)
     c.execute("DELETE FROM content_queue WHERE id = ?", (queue_id,))
     conn.commit()
     conn.close()
