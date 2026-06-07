@@ -40,6 +40,6 @@ def simulate_scheduler_run() -> dict:
     return {
         "checked_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "scheduled_count": len([post for post in scheduled_posts if post["status"] == "scheduled"]),
-        "processing_count": len([post for post in scheduled_posts if post["status"] == "processing"]),
+        "publishing_count": len([post for post in scheduled_posts if post["status"] == "publishing"]),
         "message": "Scheduler simulation only. No post was published.",
     }

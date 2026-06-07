@@ -15,6 +15,9 @@ from PIL import Image, ImageOps
 from utils import db
 from social.facebook_client import validate_facebook_config
 from scheduler.runner import recommend_time_for_platform, simulate_scheduler_run
+from scheduler_worker import run_scheduler_worker
+from config import settings
+from facebook_comment_automation import classify_comment, generate_ai_reply, publish_comment_reply
 
 load_dotenv()
 
@@ -513,7 +516,7 @@ def render_content_queue_body():
                 tone=queue_tone,
                 media_type=media_type,
                 media_name=media_name,
-                status="draft",
+                status="queued",
             )
             st.success(f"Added queued post #{queue_id}.")
             st.rerun()
@@ -524,13 +527,14 @@ def render_content_queue_body():
 
     rows = db.list_queue_items(100)
     render_campaign_calendar(rows)
+    render_publishing_logs()
 
     st.markdown("#### Queued posts")
     if not rows:
         st.write("No queued posts yet.")
         return
 
-    status_options = ["draft", "scheduled", "processing", "posted", "failed"]
+    status_options = ["queued", "scheduled", "publishing", "posted", "failed"]
     timezone_options = ["America/New_York", "America/Chicago", "America/Los_Angeles", "UTC"]
 
     for (
@@ -602,8 +606,8 @@ def render_content_queue_body():
                 db.update_queue_status(
                     queue_id,
                     selected_status,
-                    selected_date.isoformat() if selected_status != "draft" else scheduled_date,
-                    selected_time.strftime("%H:%M") if selected_status != "draft" else scheduled_time,
+                    selected_date.isoformat() if selected_status != "queued" else scheduled_date,
+                    selected_time.strftime("%H:%M") if selected_status != "queued" else scheduled_time,
                     selected_timezone,
                 )
                 st.success("Queued post status updated.")
@@ -673,7 +677,7 @@ def render_campaign_calendar(rows):
         st.write("Schedule queued posts to see them on the campaign calendar.")
         return
 
-    scheduled_rows = [row for row in rows if row[7] in ("scheduled", "processing", "posted", "failed")]
+    scheduled_rows = [row for row in rows if row[7] in ("scheduled", "publishing", "posted", "failed")]
     if not scheduled_rows:
         st.write("No scheduled campaign posts yet.")
         return
@@ -694,6 +698,242 @@ def render_campaign_calendar(rows):
         calendar_cols[2].write(build_campaign_title(caption))
         calendar_cols[3].write(format_time_label(scheduled_time))
         calendar_cols[4].caption(f"{status} | {timezone or 'America/New_York'} | #{queue_id}")
+
+
+def render_publishing_logs():
+    st.markdown("#### Publishing Log")
+    run_cols = st.columns([1, 3])
+    if run_cols[0].button("Run Scheduler Simulation"):
+        result = run_scheduler_worker(simulate_only=True)
+        st.success(f"Scheduler scanned {result['scanned']} post(s). Ready to publish: {result['ready']}.")
+
+    if not hasattr(db, "list_publishing_logs"):
+        st.caption("Publishing logs are not ready yet.")
+        return
+
+    logs = db.list_publishing_logs(10)
+    if not logs:
+        st.write("No publish attempts yet.")
+        return
+
+    for log_id, queue_item_id, platform, status, message, error_message, created_at in logs:
+        with st.container(border=True):
+            cols = st.columns([1, 1, 1, 2])
+            cols[0].markdown(f"**#{log_id}**")
+            cols[1].write(platform or "Unknown")
+            cols[2].markdown(f"`{(status or 'unknown').upper()}`")
+            cols[3].caption(f"{created_at} | Queue item #{queue_item_id}")
+            st.write(message or "_No message recorded._")
+            if error_message:
+                st.error(error_message)
+
+
+def build_bar_chart_data(counts: dict) -> dict:
+    return {
+        "label": list(counts.keys()),
+        "count": list(counts.values()),
+    }
+
+
+def render_analytics_dashboard():
+    st.subheader("Analytics Dashboard")
+    st.caption("Local performance snapshot from generated content, queue activity, publishing simulations, and comment automation.")
+
+    if not hasattr(db, "get_analytics_summary"):
+        st.warning("Analytics are still initializing. Refresh after deployment finishes.")
+        return
+
+    analytics = db.get_analytics_summary()
+
+    post_cols = st.columns(4)
+    post_cols[0].metric("Generated posts", analytics["total_generated_posts"])
+    post_cols[1].metric("Queued posts", analytics["queued_posts"])
+    post_cols[2].metric("Scheduled posts", analytics["scheduled_posts"])
+    post_cols[3].metric("Simulated published", analytics["simulated_published_posts"])
+
+    comment_cols = st.columns(5)
+    comment_cols[0].metric("Comments ingested", analytics["total_comments_ingested"])
+    comment_cols[1].metric("Replies drafted", analytics["replies_drafted"])
+    comment_cols[2].metric("Replies approved", analytics["replies_approved"])
+    comment_cols[3].metric("Replies simulated posted", analytics["replies_simulated_posted"])
+    comment_cols[4].metric("Needs review", analytics["comments_needing_human_review"])
+
+    chart_cols = st.columns(2)
+    with chart_cols[0]:
+        st.markdown("#### Queue Status")
+        queue_status_counts = analytics["queue_status_counts"]
+        if queue_status_counts:
+            st.bar_chart(build_bar_chart_data(queue_status_counts), x="label", y="count")
+        else:
+            st.write("No queue activity yet.")
+
+    with chart_cols[1]:
+        st.markdown("#### Comments By Category")
+        comments_by_category = analytics["comments_by_category"]
+        if comments_by_category:
+            st.bar_chart(build_bar_chart_data(comments_by_category), x="label", y="count")
+        else:
+            st.write("No comments classified yet.")
+
+    st.markdown("#### Comment Workflow")
+    comment_status_counts = analytics["comment_status_counts"]
+    if comment_status_counts:
+        st.bar_chart(build_bar_chart_data(comment_status_counts), x="label", y="count")
+    else:
+        st.write("No comment workflow activity yet.")
+
+    if analytics["comments_needing_human_review"]:
+        st.warning("Some comments need human review before reply simulation.")
+    else:
+        st.success("No comments currently flagged for human review.")
+
+
+def render_facebook_comment_automation_center():
+    st.subheader("Facebook Comment Automation Center")
+    st.caption("Ingest, classify, draft, approve, and simulate Facebook comment replies. Real replies are off by default.")
+    st.info(f"LIVE_FACEBOOK_MODE is {'ON' if settings.LIVE_FACEBOOK_MODE else 'OFF'} - replies are simulated while this is off.")
+
+    if hasattr(db, "ensure_facebook_comments_table"):
+        db.ensure_facebook_comments_table()
+
+    with st.container(border=True):
+        st.markdown("**Comment ingestion**")
+        source_post = st.text_input(
+            "Source post or campaign",
+            value="Facebook weekend BBQ promo",
+            key="comment_source_post",
+        )
+        commenter_name = st.text_input("Commenter name", value="Facebook customer", key="commenter_name")
+        comment_text = st.text_area(
+            "Facebook comment",
+            height=120,
+            placeholder="Example: Do you cater office lunches this Friday?",
+            key="facebook_comment_text",
+        )
+        ingest_cols = st.columns(2)
+        if ingest_cols[0].button("Add Comment"):
+            if not comment_text.strip():
+                st.warning("Add a comment before saving.")
+            else:
+                comment_id = db.add_facebook_comment(source_post, commenter_name, comment_text)
+                st.success(f"Added comment #{comment_id}.")
+                st.rerun()
+        if ingest_cols[1].button("Add Demo Comments"):
+            demo_comments = [
+                ("Weekend brisket promo", "Maya", "Do you cater birthday parties next weekend?"),
+                ("Late night delivery post", "Chris", "Where are you parked after the club tonight?"),
+                ("Rib plate photo", "Denise", "Those ribs look amazing!"),
+            ]
+            for demo_source, demo_name, demo_text in demo_comments:
+                db.add_facebook_comment(demo_source, demo_name, demo_text)
+            st.success("Demo comments added.")
+            st.rerun()
+
+    rows = db.list_facebook_comments(100)
+    st.markdown("#### Comment Inbox")
+    if not rows:
+        st.write("No comments ingested yet.")
+        return
+
+    for row in rows:
+        (
+            comment_id,
+            source_post,
+            commenter_name,
+            comment_text,
+            classification,
+            suggested_reply,
+            status,
+            last_reply_attempt_at,
+            reply_status,
+            error_message,
+            created_at,
+            _updated_at,
+        ) = row
+        comment = {
+            "id": comment_id,
+            "source_post": source_post,
+            "commenter_name": commenter_name,
+            "comment_text": comment_text,
+            "classification": classification,
+            "suggested_reply": suggested_reply,
+            "status": status,
+        }
+
+        with st.container(border=True):
+            header_cols = st.columns([2, 1, 1])
+            header_cols[0].markdown(f"**{commenter_name or 'Facebook user'}**")
+            header_cols[0].caption(f"{source_post or 'Unknown post'} | Created: {created_at}")
+            header_cols[1].markdown(f"`{(classification or 'unclassified').upper()}`")
+            header_cols[2].markdown(f"**Status:** `{(status or 'new').upper()}`")
+            st.write(comment_text or "_No comment text saved._")
+
+            action_cols = st.columns(4)
+            if action_cols[0].button("Classify", key=f"classify_comment_{comment_id}"):
+                comment_class = classify_comment(comment_text)
+                db.update_facebook_comment_classification(comment_id, comment_class)
+                st.success("Comment classified.")
+                st.rerun()
+
+            if action_cols[1].button("Generate Reply", key=f"generate_reply_{comment_id}"):
+                comment_class = classification or classify_comment(comment_text)
+                if not classification:
+                    db.update_facebook_comment_classification(comment_id, comment_class)
+                reply = generate_ai_reply(comment_text, comment_class)
+                db.update_facebook_comment_reply(comment_id, reply, "reply_drafted")
+                st.success("AI reply draft generated.")
+                st.rerun()
+
+            if action_cols[2].button("Approve Reply", key=f"approve_reply_{comment_id}"):
+                if not suggested_reply:
+                    st.warning("Generate or write a reply before approval.")
+                else:
+                    db.update_facebook_comment_reply(comment_id, suggested_reply, "approved")
+                    st.success("Reply approved.")
+                    st.rerun()
+
+            if action_cols[3].button("Simulate Reply", key=f"simulate_reply_{comment_id}"):
+                if status != "approved":
+                    st.warning("Approve the reply before simulating publishing.")
+                else:
+                    result = publish_comment_reply(comment, suggested_reply or "")
+                    next_status = "simulated_replied" if result["success"] else "failed"
+                    db.update_facebook_comment_reply_attempt(
+                        comment_id,
+                        next_status,
+                        result.get("message", ""),
+                        "" if result["success"] else result.get("message", ""),
+                    )
+                    db.add_facebook_comment_reply_log(
+                        comment_id,
+                        next_status,
+                        suggested_reply or "",
+                        result.get("message", ""),
+                        "" if result["success"] else result.get("message", ""),
+                    )
+                    st.success(result["message"]) if result["success"] else st.error(result["message"])
+                    st.rerun()
+
+            edited_reply = st.text_area(
+                "Reply draft",
+                value=suggested_reply or "",
+                height=120,
+                key=f"comment_reply_text_{comment_id}",
+                placeholder="Generate a reply, then edit it before approval.",
+            )
+            save_cols = st.columns([1, 3])
+            if save_cols[0].button("Save Reply Draft", key=f"save_reply_draft_{comment_id}"):
+                if not edited_reply.strip():
+                    st.warning("Reply draft cannot be empty.")
+                else:
+                    db.update_facebook_comment_reply(comment_id, edited_reply, "reply_drafted")
+                    st.success("Reply draft saved.")
+                    st.rerun()
+
+            if last_reply_attempt_at or reply_status:
+                st.caption(f"Last reply attempt: {last_reply_attempt_at or 'Not attempted'} | Reply status: {reply_status or 'none'}")
+            if error_message:
+                st.error(error_message)
 
 
 def build_menu_intelligence_prompt(
@@ -1275,8 +1515,8 @@ def main():
         st.error("OPENAI_API_KEY not found. Add your key to .env and restart the app.")
         st.stop()
 
-    intelligence_tab, planner_tab, queue_tab, social_tab = st.tabs(
-        ["Menu & Specials Lab", "Weekly Planner", "Content Queue", "Social Media Setup"]
+    intelligence_tab, planner_tab, queue_tab, analytics_tab, comments_tab, social_tab = st.tabs(
+        ["Menu & Specials Lab", "Weekly Planner", "Content Queue", "Analytics", "Comment Automation", "Social Media Setup"]
     )
     with intelligence_tab:
         render_menu_specials_lab(platform, tone, cost_per_1k)
@@ -1287,6 +1527,18 @@ def main():
             render_content_queue()
         except Exception as exc:
             st.warning("Content Queue could not load. Other app features are still available.")
+            st.caption(str(exc))
+    with analytics_tab:
+        try:
+            render_analytics_dashboard()
+        except Exception as exc:
+            st.warning("Analytics Dashboard could not load. Other app features are still available.")
+            st.caption(str(exc))
+    with comments_tab:
+        try:
+            render_facebook_comment_automation_center()
+        except Exception as exc:
+            st.warning("Facebook Comment Automation Center could not load. Other app features are still available.")
             st.caption(str(exc))
     with social_tab:
         render_social_media_integration_guide()
