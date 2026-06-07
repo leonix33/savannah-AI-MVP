@@ -438,45 +438,85 @@ def render_content_queue():
 
 def render_content_queue_body():
     st.subheader("Content Queue")
-    st.caption("Phase 1 automation foundation: queue content locally before future scheduling and publishing.")
+    st.caption("Edit, queue, schedule, and manage generated posts before future publishing automation.")
 
     if hasattr(db, "ensure_content_queue_table"):
         db.ensure_content_queue_table()
 
     latest_generation = st.session_state.get("latest_generation")
-    if latest_generation:
-        with st.container(border=True):
-            st.markdown("**Latest generated content**")
+    latest_caption = (latest_generation or {}).get("result", "")
+
+    # The composer lets the owner edit generated content before saving it to the queue.
+    with st.container(border=True):
+        st.markdown("**Queue composer**")
+        if latest_generation:
             st.caption(
-                f"{latest_generation.get('platform', 'Unknown platform')} | "
+                f"Loaded from latest generation: {latest_generation.get('platform', 'Unknown platform')} | "
                 f"{latest_generation.get('task', 'Unknown task')}"
             )
-            preview = (latest_generation.get("result") or "").strip()
-            if len(preview) > 500:
-                preview = f"{preview[:500]}..."
-            st.write(preview or "_No generated content available._")
+        else:
+            st.caption("Paste content here, or generate content first to prefill this box.")
 
-            if st.button("Add latest generated content to queue"):
-                if not hasattr(db, "add_queue_item"):
-                    st.warning("Queue storage is not ready yet. Please refresh after deployment finishes.")
-                    return
-
-                caption = latest_generation.get("result") or ""
-                queue_id = db.add_queue_item(
-                    platform=latest_generation.get("platform") or "General",
-                    caption=caption,
-                    hashtags=extract_hashtags(caption),
-                    media_type=infer_media_type(
-                        latest_generation.get("task") or "",
-                        latest_generation.get("media_name"),
-                    ),
-                    media_name=latest_generation.get("media_name"),
-                    status="draft",
+        draft_caption = st.text_area(
+            "Edit content before queueing",
+            value=latest_caption,
+            height=220,
+            key="queue_draft_caption",
+            placeholder="Paste or edit a caption, hooks, hashtags, or campaign copy...",
+        )
+        composer_cols = st.columns([1, 1, 1])
+        queue_platform = composer_cols[0].selectbox(
+            "Platform",
+            ["Facebook", "Instagram", "TikTok", "Threads", "LinkedIn", "General"],
+            index=(
+                ["Facebook", "Instagram", "TikTok", "Threads", "LinkedIn", "General"].index(
+                    latest_generation.get("platform")
                 )
-                st.success(f"Added to content queue as draft #{queue_id}.")
-                st.rerun()
-    else:
-        st.info("Generate content first, then add it to the queue here.")
+                if latest_generation and latest_generation.get("platform") in ["Facebook", "Instagram", "TikTok", "Threads", "LinkedIn", "General"]
+                else 0
+            ),
+            key="queue_draft_platform",
+        )
+        queue_tone = composer_cols[1].selectbox(
+            "Tone",
+            ["Friendly", "Playful", "Bold", "Professional", "Authentic Southern", "Urgent"],
+            index=(
+                ["Friendly", "Playful", "Bold", "Professional", "Authentic Southern", "Urgent"].index(
+                    latest_generation.get("tone")
+                )
+                if latest_generation and latest_generation.get("tone") in ["Friendly", "Playful", "Bold", "Professional", "Authentic Southern", "Urgent"]
+                else 0
+            ),
+            key="queue_draft_tone",
+        )
+        queue_media_type = composer_cols[2].selectbox(
+            "Media type",
+            ["text", "image", "video", "media"],
+            index=0,
+            key="queue_draft_media_type",
+        )
+
+        if st.button("Add to Queue"):
+            if not draft_caption.strip():
+                st.warning("Add content before queueing.")
+                return
+            if not hasattr(db, "add_queue_item"):
+                st.warning("Queue storage is not ready yet. Please refresh after deployment finishes.")
+                return
+
+            media_name = latest_generation.get("media_name") if latest_generation else None
+            media_type = infer_media_type(latest_generation.get("task") or "", media_name) if latest_generation else queue_media_type
+            queue_id = db.add_queue_item(
+                platform=queue_platform,
+                caption=draft_caption,
+                hashtags=extract_hashtags(draft_caption),
+                tone=queue_tone,
+                media_type=media_type,
+                media_name=media_name,
+                status="draft",
+            )
+            st.success(f"Added queued post #{queue_id}.")
+            st.rerun()
 
     if not hasattr(db, "list_queue_items"):
         st.info("Queue storage is still initializing. Refresh shortly to view queued posts.")
@@ -487,7 +527,7 @@ def render_content_queue_body():
 
     st.markdown("#### Queued posts")
     if not rows:
-        st.info("No queued posts yet.")
+        st.write("No queued posts yet.")
         return
 
     status_options = ["draft", "scheduled", "processing", "posted", "failed"]
@@ -496,6 +536,7 @@ def render_content_queue_body():
     for (
         queue_id,
         platform,
+        tone,
         caption,
         hashtags,
         media_type,
@@ -507,19 +548,21 @@ def render_content_queue_body():
         created_at,
     ) in rows:
         with st.container(border=True):
-            header_cols = st.columns([3, 1.2, 1.2])
-            header_cols[0].markdown(f"**{platform or 'General'}** | {status or 'draft'}")
+            header_cols = st.columns([3, 1, 1])
+            header_cols[0].markdown(f"**{platform or 'General'}**")
             header_cols[0].caption(
-                f"ID {queue_id} | {media_type or 'text'} | {media_name or 'No media'} | Created {created_at}"
+                f"ID {queue_id} | Tone: {tone or 'Not set'} | {media_type or 'text'} | {media_name or 'No media'}"
             )
+            header_cols[1].markdown(f"**Status:** `{status or 'draft'}`")
+            header_cols[2].caption(f"Created: {created_at}")
 
-            selected_status = header_cols[1].selectbox(
+            selected_status = st.selectbox(
                 "Status",
                 status_options,
                 index=status_options.index(status) if status in status_options else 0,
                 key=f"queue_status_{queue_id}",
             )
-            selected_timezone = header_cols[2].selectbox(
+            selected_timezone = st.selectbox(
                 "Timezone",
                 timezone_options,
                 index=timezone_options.index(timezone) if timezone in timezone_options else 0,
@@ -538,7 +581,7 @@ def render_content_queue_body():
                 key=f"queue_time_{queue_id}",
             )
 
-            if schedule_cols[2].button("Schedule / Reschedule", key=f"queue_schedule_{queue_id}"):
+            if schedule_cols[2].button("Schedule Post", key=f"queue_schedule_{queue_id}"):
                 if not hasattr(db, "update_queue_status"):
                     st.warning("Queue scheduling is not ready yet. Please refresh after deployment finishes.")
                     return
@@ -552,7 +595,7 @@ def render_content_queue_body():
                 st.success("Queued post marked as scheduled.")
                 st.rerun()
 
-            if schedule_cols[3].button("Update status", key=f"queue_status_update_{queue_id}"):
+            if schedule_cols[3].button("Update Status", key=f"queue_status_update_{queue_id}"):
                 if not hasattr(db, "update_queue_status"):
                     st.warning("Queue status updates are not ready yet. Please refresh after deployment finishes.")
                     return
@@ -569,37 +612,77 @@ def render_content_queue_body():
             caption_preview = (caption or "").strip()
             if len(caption_preview) > 700:
                 caption_preview = f"{caption_preview[:700]}..."
-            st.markdown("**Caption**")
-            st.write(caption_preview or "_No caption saved._")
+
+            # Each queued item can be edited inline without leaving the queue workflow.
+            edit_key = f"queue_editing_{queue_id}"
+            if st.session_state.get(edit_key):
+                edited_caption = st.text_area(
+                    "Edit queued content",
+                    value=caption or "",
+                    height=220,
+                    key=f"queue_edit_text_{queue_id}",
+                )
+                edit_cols = st.columns(2)
+                if edit_cols[0].button("Save Edit", key=f"queue_save_edit_{queue_id}"):
+                    if not hasattr(db, "update_queue_item_caption"):
+                        st.warning("Queue editing is not ready yet. Please refresh after deployment finishes.")
+                        return
+                    db.update_queue_item_caption(queue_id, edited_caption, extract_hashtags(edited_caption))
+                    st.session_state[edit_key] = False
+                    st.success("Queued post updated.")
+                    st.rerun()
+                if edit_cols[1].button("Cancel Edit", key=f"queue_cancel_edit_{queue_id}"):
+                    st.session_state[edit_key] = False
+                    st.rerun()
+            else:
+                st.markdown("**Content preview**")
+                st.write(caption_preview or "_No caption saved._")
 
             if hashtags:
                 st.caption(f"Hashtags: {hashtags}")
 
-            if st.button("Delete queued post", key=f"queue_delete_{queue_id}"):
+            action_cols = st.columns(3)
+            if action_cols[0].button("Edit", key=f"queue_edit_{queue_id}"):
+                st.session_state[edit_key] = True
+                st.rerun()
+            if action_cols[1].button("Schedule", key=f"queue_schedule_shortcut_{queue_id}"):
+                if not hasattr(db, "update_queue_status"):
+                    st.warning("Queue scheduling is not ready yet. Please refresh after deployment finishes.")
+                    return
+                db.update_queue_status(
+                    queue_id,
+                    "scheduled",
+                    selected_date.isoformat(),
+                    selected_time.strftime("%H:%M"),
+                    selected_timezone,
+                )
+                st.success("Queued post scheduled.")
+                st.rerun()
+            if action_cols[2].button("Remove", key=f"queue_delete_{queue_id}"):
                 if not hasattr(db, "delete_queue_item"):
                     st.warning("Queue deletion is not ready yet. Please refresh after deployment finishes.")
                     return
                 db.delete_queue_item(queue_id)
-                st.success("Deleted queued post.")
+                st.success("Removed queued post.")
                 st.rerun()
 
 
 def render_campaign_calendar(rows):
     st.markdown("#### Campaign Calendar")
     if not rows:
-        st.info("Schedule queued posts to see them on the campaign calendar.")
+        st.write("Schedule queued posts to see them on the campaign calendar.")
         return
 
-    scheduled_rows = [row for row in rows if row[6] in ("scheduled", "processing", "posted", "failed")]
+    scheduled_rows = [row for row in rows if row[7] in ("scheduled", "processing", "posted", "failed")]
     if not scheduled_rows:
-        st.info("No scheduled campaign posts yet.")
+        st.write("No scheduled campaign posts yet.")
         return
 
     simulation = simulate_scheduler_run()
     st.caption(f"{simulation['message']} Scheduled posts detected: {simulation['scheduled_count']}.")
 
-    for row in sorted(scheduled_rows, key=lambda item: (item[7] or "9999-12-31", item[8] or "99:99")):
-        queue_id, platform, caption, _hashtags, _media_type, _media_name, status, scheduled_date, scheduled_time, timezone, _created_at = row
+    for row in sorted(scheduled_rows, key=lambda item: (item[8] or "9999-12-31", item[9] or "99:99")):
+        queue_id, platform, _tone, caption, _hashtags, _media_type, _media_name, status, scheduled_date, scheduled_time, timezone, _created_at = row
         try:
             day_label = date.fromisoformat(scheduled_date).strftime("%A")
         except (TypeError, ValueError):

@@ -54,6 +54,7 @@ def _create_content_queue_table(cursor) -> None:
         CREATE TABLE IF NOT EXISTS content_queue (
             id INTEGER PRIMARY KEY,
             platform TEXT,
+            tone TEXT,
             caption TEXT,
             hashtags TEXT,
             media_type TEXT,
@@ -72,6 +73,8 @@ def _create_content_queue_table(cursor) -> None:
 def _ensure_content_queue_columns(cursor) -> None:
     cursor.execute("PRAGMA table_info(content_queue)")
     existing = {row[1] for row in cursor.fetchall()}
+    if "tone" not in existing:
+        cursor.execute("ALTER TABLE content_queue ADD COLUMN tone TEXT")
     if "scheduled_date" not in existing:
         cursor.execute("ALTER TABLE content_queue ADD COLUMN scheduled_date TEXT")
     if "timezone" not in existing:
@@ -121,6 +124,7 @@ def add_queue_item(
     platform: str,
     caption: str,
     hashtags: str = "",
+    tone: str = "",
     media_type: str = "text",
     media_name: str | None = None,
     status: str = "draft",
@@ -134,11 +138,12 @@ def add_queue_item(
     c.execute(
         """
         INSERT INTO content_queue
-            (platform, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (platform, tone, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             platform,
+            tone,
             caption,
             hashtags,
             media_type,
@@ -161,7 +166,7 @@ def list_queue_items(limit: int = 100):
     _create_content_queue_table(c)
     c.execute(
         """
-        SELECT id, platform, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
+        SELECT id, platform, tone, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
         FROM content_queue
         ORDER BY id DESC
         LIMIT ?
@@ -195,13 +200,25 @@ def update_queue_status(
     conn.close()
 
 
+def update_queue_item_caption(queue_id: int, caption: str, hashtags: str = "") -> None:
+    conn = get_conn()
+    c = conn.cursor()
+    _create_content_queue_table(c)
+    c.execute(
+        "UPDATE content_queue SET caption = ?, hashtags = ? WHERE id = ?",
+        (caption, hashtags, queue_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def list_scheduled_queue_items(limit: int = 100):
     conn = get_conn()
     c = conn.cursor()
     _create_content_queue_table(c)
     c.execute(
         """
-        SELECT id, platform, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
+        SELECT id, platform, tone, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
         FROM content_queue
         WHERE status IN ('scheduled', 'processing', 'posted', 'failed')
         ORDER BY scheduled_date IS NULL, scheduled_date ASC, scheduled_time IS NULL, scheduled_time ASC, id DESC

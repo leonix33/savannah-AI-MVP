@@ -20,15 +20,16 @@ def detect_scheduled_posts(limit: int = 100) -> list[dict]:
         {
             "id": row[0],
             "platform": row[1],
-            "caption": row[2],
-            "hashtags": row[3],
-            "media_type": row[4],
-            "media_name": row[5],
-            "status": row[6],
-            "scheduled_date": row[7],
-            "scheduled_time": row[8],
-            "timezone": row[9],
-            "created_at": row[10],
+            "tone": row[2],
+            "caption": row[3],
+            "hashtags": row[4],
+            "media_type": row[5],
+            "media_name": row[6],
+            "status": row[7],
+            "scheduled_date": row[8],
+            "scheduled_time": row[9],
+            "timezone": row[10],
+            "created_at": row[11],
         }
         for row in rows
     ]
