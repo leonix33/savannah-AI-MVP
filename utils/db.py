@@ -96,6 +96,8 @@ def _create_facebook_comments_table(cursor) -> None:
         """
         CREATE TABLE IF NOT EXISTS facebook_comments (
             id INTEGER PRIMARY KEY,
+            facebook_post_id TEXT,
+            facebook_comment_id TEXT,
             source_post TEXT,
             commenter_name TEXT,
             comment_text TEXT,
@@ -134,6 +136,8 @@ def _ensure_facebook_comment_columns(cursor) -> None:
     cursor.execute("PRAGMA table_info(facebook_comments)")
     existing = {row[1] for row in cursor.fetchall()}
     columns = {
+        "facebook_post_id": "TEXT",
+        "facebook_comment_id": "TEXT",
         "source_post": "TEXT",
         "commenter_name": "TEXT",
         "comment_text": "TEXT",
@@ -400,16 +404,26 @@ def add_facebook_comment(
     commenter_name: str,
     comment_text: str,
     status: str = "new",
+    facebook_post_id: str = "",
+    facebook_comment_id: str = "",
 ) -> int:
     conn = get_conn()
     c = conn.cursor()
     _create_facebook_comments_table(c)
+    if facebook_comment_id:
+        c.execute("SELECT id FROM facebook_comments WHERE facebook_comment_id = ?", (facebook_comment_id,))
+        existing = c.fetchone()
+        if existing:
+            conn.close()
+            return existing[0]
     c.execute(
         """
-        INSERT INTO facebook_comments (source_post, commenter_name, comment_text, status)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO facebook_comments (
+            facebook_post_id, facebook_comment_id, source_post, commenter_name, comment_text, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (source_post, commenter_name, comment_text, status),
+        (facebook_post_id, facebook_comment_id, source_post, commenter_name, comment_text, status),
     )
     comment_id = c.lastrowid
     conn.commit()
@@ -424,7 +438,8 @@ def list_facebook_comments(limit: int = 100):
     c.execute(
         """
         SELECT id, source_post, commenter_name, comment_text, classification, suggested_reply,
-               status, last_reply_attempt_at, reply_status, error_message, created_at, updated_at
+               status, last_reply_attempt_at, reply_status, error_message, created_at, updated_at,
+               facebook_post_id, facebook_comment_id
         FROM facebook_comments
         ORDER BY id DESC
         LIMIT ?

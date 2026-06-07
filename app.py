@@ -18,6 +18,7 @@ from scheduler.runner import recommend_time_for_platform, simulate_scheduler_run
 from scheduler_worker import run_scheduler_worker
 from config import settings
 from facebook_comment_automation import classify_comment, generate_ai_reply, publish_comment_reply
+from social.facebook_graph_client import fetch_recent_page_comments, validate_facebook_graph_config
 
 load_dotenv()
 
@@ -797,6 +798,35 @@ def render_facebook_comment_automation_center():
         db.ensure_facebook_comments_table()
 
     with st.container(border=True):
+        st.markdown("**Read-only Meta test**")
+        st.caption("Fetch real Facebook Page comments into the local inbox. This does not post replies.")
+        is_ready, config_message = validate_facebook_graph_config()
+        if is_ready:
+            st.success(config_message)
+        else:
+            st.warning(config_message)
+        fetch_cols = st.columns([1, 1, 2])
+        post_limit = fetch_cols[0].number_input("Posts to scan", min_value=1, max_value=25, value=5, step=1)
+        comments_per_post = fetch_cols[1].number_input("Comments per post", min_value=1, max_value=50, value=10, step=1)
+        if fetch_cols[2].button("Fetch Page Comments Read-Only"):
+            result = fetch_recent_page_comments(int(post_limit), int(comments_per_post))
+            if not result["success"]:
+                st.error(result["message"])
+            else:
+                imported = 0
+                for comment in result["comments"]:
+                    db.add_facebook_comment(
+                        source_post=comment["source_post"],
+                        commenter_name=comment["commenter_name"],
+                        comment_text=comment["comment_text"],
+                        facebook_post_id=comment["facebook_post_id"],
+                        facebook_comment_id=comment["facebook_comment_id"],
+                    )
+                    imported += 1
+                st.success(f"{result['message']} Imported {imported} comment(s) into SQLite.")
+                st.rerun()
+
+    with st.container(border=True):
         st.markdown("**Comment ingestion**")
         source_post = st.text_input(
             "Source post or campaign",
@@ -849,9 +879,13 @@ def render_facebook_comment_automation_center():
             error_message,
             created_at,
             _updated_at,
+            facebook_post_id,
+            facebook_comment_id,
         ) = row
         comment = {
             "id": comment_id,
+            "facebook_post_id": facebook_post_id,
+            "facebook_comment_id": facebook_comment_id,
             "source_post": source_post,
             "commenter_name": commenter_name,
             "comment_text": comment_text,
@@ -864,6 +898,8 @@ def render_facebook_comment_automation_center():
             header_cols = st.columns([2, 1, 1])
             header_cols[0].markdown(f"**{commenter_name or 'Facebook user'}**")
             header_cols[0].caption(f"{source_post or 'Unknown post'} | Created: {created_at}")
+            if facebook_comment_id:
+                header_cols[0].caption(f"Facebook comment ID: {facebook_comment_id} | Post ID: {facebook_post_id or 'unknown'}")
             header_cols[1].markdown(f"`{(classification or 'unclassified').upper()}`")
             header_cols[2].markdown(f"**Status:** `{(status or 'new').upper()}`")
             st.write(comment_text or "_No comment text saved._")

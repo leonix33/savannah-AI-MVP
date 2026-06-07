@@ -43,11 +43,12 @@ def validate_reply(comment: dict, reply_text: str) -> tuple[bool, str]:
 
 def simulate_reply_publish(comment: dict, reply_text: str) -> dict:
     commenter = comment.get("commenter_name") or "Facebook user"
+    facebook_comment_id = comment.get("facebook_comment_id") or "local-only comment"
     reply_preview = (reply_text or "").strip()[:80]
     return {
         "success": True,
         "mode": "simulation",
-        "message": f"Simulated Facebook reply to {commenter}: {reply_preview}. No real Facebook comment was posted.",
+        "message": f"Simulated Facebook reply to {commenter} on {facebook_comment_id}: {reply_preview}. No real Facebook comment was posted.",
     }
 
 

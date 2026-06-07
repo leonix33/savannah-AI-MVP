@@ -14,5 +14,6 @@ VIDEO_FRAME_COUNT = int(os.environ.get("VIDEO_FRAME_COUNT", "3"))
 
 FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID", "")
 FACEBOOK_PAGE_ACCESS_TOKEN = os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN", "")
+FACEBOOK_GRAPH_VERSION = os.environ.get("FACEBOOK_GRAPH_VERSION", "v20.0")
 AUTO_PUBLISH_MODE = os.environ.get("AUTO_PUBLISH_MODE", "false").strip().lower() == "true"
 LIVE_FACEBOOK_MODE = os.environ.get("LIVE_FACEBOOK_MODE", "false").strip().lower() == "true"
