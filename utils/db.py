@@ -55,6 +55,7 @@ def _create_content_queue_table(cursor) -> None:
             id INTEGER PRIMARY KEY,
             platform TEXT,
             tone TEXT,
+            content TEXT,
             caption TEXT,
             hashtags TEXT,
             media_type TEXT,
@@ -75,6 +76,8 @@ def _ensure_content_queue_columns(cursor) -> None:
     existing = {row[1] for row in cursor.fetchall()}
     if "tone" not in existing:
         cursor.execute("ALTER TABLE content_queue ADD COLUMN tone TEXT")
+    if "content" not in existing:
+        cursor.execute("ALTER TABLE content_queue ADD COLUMN content TEXT")
     if "scheduled_date" not in existing:
         cursor.execute("ALTER TABLE content_queue ADD COLUMN scheduled_date TEXT")
     if "timezone" not in existing:
@@ -122,37 +125,56 @@ def delete_result(result_id: int) -> None:
 
 def add_queue_item(
     platform: str,
-    caption: str,
+    content: str = "",
     hashtags: str = "",
     tone: str = "",
     media_type: str = "text",
     media_name: str | None = None,
     status: str = "draft",
+    created_at: str | None = None,
     scheduled_date: str | None = None,
     scheduled_time: str | None = None,
     timezone: str = "America/New_York",
+    caption: str | None = None,
 ) -> int:
     conn = get_conn()
     c = conn.cursor()
     _create_content_queue_table(c)
+    queue_content = content or caption or ""
+    columns = [
+        "platform",
+        "tone",
+        "content",
+        "caption",
+        "hashtags",
+        "media_type",
+        "media_name",
+        "status",
+        "scheduled_date",
+        "scheduled_time",
+        "timezone",
+    ]
+    values = [
+        platform,
+        tone,
+        queue_content,
+        queue_content,
+        hashtags,
+        media_type,
+        media_name,
+        normalize_queue_status(status),
+        scheduled_date,
+        scheduled_time,
+        timezone,
+    ]
+    if created_at:
+        columns.append("created_at")
+        values.append(created_at)
+
+    placeholders = ", ".join("?" for _ in columns)
     c.execute(
-        """
-        INSERT INTO content_queue
-            (platform, tone, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            platform,
-            tone,
-            caption,
-            hashtags,
-            media_type,
-            media_name,
-            normalize_queue_status(status),
-            scheduled_date,
-            scheduled_time,
-            timezone,
-        ),
+        f"INSERT INTO content_queue ({', '.join(columns)}) VALUES ({placeholders})",
+        values,
     )
     queue_id = c.lastrowid
     conn.commit()
@@ -166,7 +188,7 @@ def list_queue_items(limit: int = 100):
     _create_content_queue_table(c)
     c.execute(
         """
-        SELECT id, platform, tone, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
+        SELECT id, platform, tone, COALESCE(content, caption) AS content, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
         FROM content_queue
         ORDER BY id DESC
         LIMIT ?
@@ -205,8 +227,8 @@ def update_queue_item_caption(queue_id: int, caption: str, hashtags: str = "") -
     c = conn.cursor()
     _create_content_queue_table(c)
     c.execute(
-        "UPDATE content_queue SET caption = ?, hashtags = ? WHERE id = ?",
-        (caption, hashtags, queue_id),
+        "UPDATE content_queue SET content = ?, caption = ?, hashtags = ? WHERE id = ?",
+        (caption, caption, hashtags, queue_id),
     )
     conn.commit()
     conn.close()
@@ -218,7 +240,7 @@ def list_scheduled_queue_items(limit: int = 100):
     _create_content_queue_table(c)
     c.execute(
         """
-        SELECT id, platform, tone, caption, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
+        SELECT id, platform, tone, COALESCE(content, caption) AS content, hashtags, media_type, media_name, status, scheduled_date, scheduled_time, timezone, created_at
         FROM content_queue
         WHERE status IN ('scheduled', 'processing', 'posted', 'failed')
         ORDER BY scheduled_date IS NULL, scheduled_date ASC, scheduled_time IS NULL, scheduled_time ASC, id DESC

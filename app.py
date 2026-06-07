@@ -508,7 +508,7 @@ def render_content_queue_body():
             media_type = infer_media_type(latest_generation.get("task") or "", media_name) if latest_generation else queue_media_type
             queue_id = db.add_queue_item(
                 platform=queue_platform,
-                caption=draft_caption,
+                content=draft_caption,
                 hashtags=extract_hashtags(draft_caption),
                 tone=queue_tone,
                 media_type=media_type,
@@ -553,7 +553,7 @@ def render_content_queue_body():
             header_cols[0].caption(
                 f"ID {queue_id} | Tone: {tone or 'Not set'} | {media_type or 'text'} | {media_name or 'No media'}"
             )
-            header_cols[1].markdown(f"**Status:** `{status or 'draft'}`")
+            header_cols[1].markdown(f"**Status:** `{(status or 'draft').upper()}`")
             header_cols[2].caption(f"Created: {created_at}")
 
             selected_status = st.selectbox(
