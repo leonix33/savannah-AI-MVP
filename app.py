@@ -793,6 +793,13 @@ def render_facebook_comment_automation_center():
     st.subheader("Facebook Comment Automation Center")
     st.caption("Ingest, classify, draft, approve, and simulate Facebook comment replies. Real replies are off by default.")
     st.info(f"LIVE_FACEBOOK_MODE is {'ON' if settings.LIVE_FACEBOOK_MODE else 'OFF'} - replies are simulated while this is off.")
+    config_cols = st.columns(3)
+    page_id_configured = bool(getattr(settings, "FACEBOOK_PAGE_ID", "").strip())
+    token_configured = bool(getattr(settings, "FACEBOOK_PAGE_ACCESS_TOKEN", "").strip())
+    config_cols[0].metric("Facebook Page ID", "Configured" if page_id_configured else "Missing")
+    config_cols[1].metric("Page Access Token", "Configured" if token_configured else "Missing")
+    config_cols[2].metric("Graph Version", getattr(settings, "FACEBOOK_GRAPH_VERSION", "v20.0"))
+    st.caption("Token value is intentionally hidden and never printed in the UI.")
 
     if hasattr(db, "ensure_facebook_comments_table"):
         db.ensure_facebook_comments_table()
