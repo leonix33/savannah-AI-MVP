@@ -25,6 +25,24 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Demo Mode
+
+You can test the Comment Automation workflow without Facebook credentials.
+
+If `FACEBOOK_PAGE_ID` or `FACEBOOK_PAGE_ACCESS_TOKEN` is missing, the app runs the Comment Automation tab in Demo Mode. Demo Mode keeps manual comment entry and demo comments enabled, but disables real Meta comment fetching.
+
+Use Demo Mode to test:
+
+1. Open the `Comment Automation` tab.
+2. Add a manual comment, or click `Add Demo Comments`.
+3. Click `Classify`.
+4. Click `Generate Reply`.
+5. Edit the reply draft if needed.
+6. Click `Approve Reply`.
+7. Click `Simulate Reply`.
+
+Demo Mode does not post to Facebook. Keep `LIVE_FACEBOOK_MODE=false`.
+
 ## Meta read-only comment testing
 
 The app can safely test read-only Facebook comment fetching before any real reply posting is enabled.

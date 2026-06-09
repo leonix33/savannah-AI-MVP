@@ -18,7 +18,7 @@ from scheduler.runner import recommend_time_for_platform, simulate_scheduler_run
 from scheduler_worker import run_scheduler_worker
 from config import settings
 from facebook_comment_automation import classify_comment, generate_ai_reply, publish_comment_reply
-from social.facebook_graph_client import fetch_recent_page_comments, validate_facebook_graph_config
+from social.facebook_graph_client import fetch_recent_page_comments, is_real_meta_value, validate_facebook_graph_config
 
 load_dotenv()
 
@@ -68,6 +68,168 @@ PROMOTION_TYPES = [
     "Delivery promo",
     "Limited-time special",
 ]
+
+
+def apply_demo_styles():
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: radial-gradient(circle at top left, rgba(249, 115, 22, 0.16), transparent 28%),
+                        linear-gradient(180deg, #0b0f14 0%, #14110f 100%);
+            color: #f8fafc;
+        }
+        [data-testid="stHeader"] {
+            background: rgba(11, 15, 20, 0.75);
+        }
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 4rem;
+            max-width: 1120px;
+        }
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #11100f 0%, #1a1410 100%);
+        }
+        [data-testid="stSidebar"] * {
+            color: #f8efe5;
+        }
+        h1, h2, h3 {
+            letter-spacing: -0.03em;
+        }
+        div[data-testid="stTabs"] button {
+            padding: 0.7rem 0.9rem;
+            border-radius: 999px;
+            font-weight: 700;
+        }
+        div[data-testid="stTabs"] div[role="tablist"] {
+            gap: 0.35rem;
+            flex-wrap: wrap;
+        }
+        div[data-testid="stTabs"] button[aria-selected="true"] {
+            background: #f97316;
+            color: #111827;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            border-color: rgba(249, 115, 22, 0.22) !important;
+            background: rgba(15, 23, 42, 0.36);
+            border-radius: 18px;
+        }
+        div[data-testid="stMetric"] {
+            background: rgba(17, 24, 39, 0.04);
+            border: 1px solid rgba(249, 115, 22, 0.18);
+            border-radius: 18px;
+            padding: 1rem;
+        }
+        .sbg-hero {
+            border: 1px solid rgba(249, 115, 22, 0.22);
+            border-radius: 28px;
+            padding: 1.5rem;
+            margin: 1rem 0 1.25rem;
+            background: linear-gradient(135deg, rgba(17, 24, 39, 0.96), rgba(68, 32, 16, 0.94));
+            color: #fff7ed;
+            box-shadow: 0 18px 55px rgba(17, 24, 39, 0.18);
+        }
+        .sbg-eyebrow {
+            color: #fdba74;
+            text-transform: uppercase;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            font-size: 0.78rem;
+            margin-bottom: 0.4rem;
+        }
+        .sbg-hero h1 {
+            margin: 0;
+            font-size: clamp(2rem, 5vw, 3.6rem);
+            line-height: 1.02;
+        }
+        .sbg-hero p {
+            color: #fed7aa;
+            font-size: 1.05rem;
+            line-height: 1.65;
+            max-width: 780px;
+        }
+        .sbg-chip {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid rgba(253, 186, 116, 0.4);
+            border-radius: 999px;
+            padding: 0.32rem 0.7rem;
+            margin: 0.18rem 0.22rem 0.18rem 0;
+            color: #ffedd5;
+            background: rgba(255,255,255,0.06);
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+        .sbg-card {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 18px;
+            padding: 1rem;
+            margin: 0.75rem 0;
+            background: rgba(255, 255, 255, 0.035);
+        }
+        .sbg-badge {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 0.25rem 0.65rem;
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .sbg-badge-queued { background: #dbeafe; color: #1e3a8a; }
+        .sbg-badge-scheduled { background: #fef3c7; color: #92400e; }
+        .sbg-badge-publishing { background: #ede9fe; color: #5b21b6; }
+        .sbg-badge-posted, .sbg-badge-approved, .sbg-badge-simulated_replied { background: #dcfce7; color: #166534; }
+        .sbg-badge-failed { background: #fee2e2; color: #991b1b; }
+        .sbg-badge-new, .sbg-badge-classified, .sbg-badge-reply_drafted { background: #e0f2fe; color: #075985; }
+        .sbg-preview {
+            white-space: pre-wrap;
+            border-left: 3px solid #f97316;
+            padding: 0.75rem 0.9rem;
+            border-radius: 12px;
+            background: rgba(249, 115, 22, 0.06);
+            line-height: 1.6;
+        }
+        .sbg-muted {
+            color: #78716c;
+            font-size: 0.9rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def badge(label: str) -> str:
+    safe_label = html.escape((label or "unknown").replace("_", " "))
+    css_label = re.sub(r"[^a-z0-9_]+", "-", (label or "unknown").lower())
+    return f'<span class="sbg-badge sbg-badge-{css_label}">{safe_label}</span>'
+
+
+def toast_success(message: str):
+    if hasattr(st, "toast"):
+        st.toast(message)
+    st.success(message)
+
+
+def render_onboarding_helper():
+    with st.expander("Demo Guide: How to Show This MVP", expanded=False):
+        st.markdown(
+            """
+            **Quick demo path**
+
+            1. Generate a platform-aware campaign for a brisket, delivery, or late-night special.
+            2. Add the result to the Content Queue.
+            3. Schedule it and review it on the Campaign Calendar.
+            4. Open Analytics to show the business dashboard.
+            5. Open Comment Automation, add demo comments, generate replies, approve, and simulate.
+
+            **How Savannah BBQ uses it**
+
+            The owner can plan weekly specials, queue social posts, review publishing readiness, handle Facebook comments,
+            and track activity from one local dashboard while keeping real publishing disabled until ready.
+            """
+        )
 
 
 def init_app():
@@ -508,18 +670,19 @@ def render_content_queue_body():
                 st.warning("Queue storage is not ready yet. Please refresh after deployment finishes.")
                 return
 
-            media_name = latest_generation.get("media_name") if latest_generation else None
-            media_type = infer_media_type(latest_generation.get("task") or "", media_name) if latest_generation else queue_media_type
-            queue_id = db.add_queue_item(
-                platform=queue_platform,
-                content=draft_caption,
-                hashtags=extract_hashtags(draft_caption),
-                tone=queue_tone,
-                media_type=media_type,
-                media_name=media_name,
-                status="queued",
-            )
-            st.success(f"Added queued post #{queue_id}.")
+            with st.spinner("Adding post to the queue..."):
+                media_name = latest_generation.get("media_name") if latest_generation else None
+                media_type = infer_media_type(latest_generation.get("task") or "", media_name) if latest_generation else queue_media_type
+                queue_id = db.add_queue_item(
+                    platform=queue_platform,
+                    content=draft_caption,
+                    hashtags=extract_hashtags(draft_caption),
+                    tone=queue_tone,
+                    media_type=media_type,
+                    media_name=media_name,
+                    status="queued",
+                )
+            toast_success(f"Added queued post #{queue_id}.")
             st.rerun()
 
     if not hasattr(db, "list_queue_items"):
@@ -558,8 +721,14 @@ def render_content_queue_body():
             header_cols[0].caption(
                 f"ID {queue_id} | Tone: {tone or 'Not set'} | {media_type or 'text'} | {media_name or 'No media'}"
             )
-            header_cols[1].markdown(f"**Status:** `{(status or 'draft').upper()}`")
+            header_cols[1].markdown(badge(status or "queued"), unsafe_allow_html=True)
+            schedule_label = (
+                f"{format_time_label(scheduled_time)} on {scheduled_date}"
+                if scheduled_date or scheduled_time
+                else "Not scheduled"
+            )
             header_cols[2].caption(f"Created: {created_at}")
+            header_cols[2].caption(f"Schedule: {schedule_label}")
 
             selected_status = st.selectbox(
                 "Status",
@@ -590,28 +759,30 @@ def render_content_queue_body():
                 if not hasattr(db, "update_queue_status"):
                     st.warning("Queue scheduling is not ready yet. Please refresh after deployment finishes.")
                     return
-                db.update_queue_status(
-                    queue_id,
-                    "scheduled",
-                    selected_date.isoformat(),
-                    selected_time.strftime("%H:%M"),
-                    selected_timezone,
-                )
-                st.success("Queued post marked as scheduled.")
+                with st.spinner("Scheduling post..."):
+                    db.update_queue_status(
+                        queue_id,
+                        "scheduled",
+                        selected_date.isoformat(),
+                        selected_time.strftime("%H:%M"),
+                        selected_timezone,
+                    )
+                toast_success("Queued post marked as scheduled.")
                 st.rerun()
 
             if schedule_cols[3].button("Update Status", key=f"queue_status_update_{queue_id}"):
                 if not hasattr(db, "update_queue_status"):
                     st.warning("Queue status updates are not ready yet. Please refresh after deployment finishes.")
                     return
-                db.update_queue_status(
-                    queue_id,
-                    selected_status,
-                    selected_date.isoformat() if selected_status != "queued" else scheduled_date,
-                    selected_time.strftime("%H:%M") if selected_status != "queued" else scheduled_time,
-                    selected_timezone,
-                )
-                st.success("Queued post status updated.")
+                with st.spinner("Updating queue status..."):
+                    db.update_queue_status(
+                        queue_id,
+                        selected_status,
+                        selected_date.isoformat() if selected_status != "queued" else scheduled_date,
+                        selected_time.strftime("%H:%M") if selected_status != "queued" else scheduled_time,
+                        selected_timezone,
+                    )
+                toast_success("Queued post status updated.")
                 st.rerun()
 
             caption_preview = (caption or "").strip()
@@ -632,16 +803,20 @@ def render_content_queue_body():
                     if not hasattr(db, "update_queue_item_caption"):
                         st.warning("Queue editing is not ready yet. Please refresh after deployment finishes.")
                         return
-                    db.update_queue_item_caption(queue_id, edited_caption, extract_hashtags(edited_caption))
+                    with st.spinner("Saving edit..."):
+                        db.update_queue_item_caption(queue_id, edited_caption, extract_hashtags(edited_caption))
                     st.session_state[edit_key] = False
-                    st.success("Queued post updated.")
+                    toast_success("Queued post updated.")
                     st.rerun()
                 if edit_cols[1].button("Cancel Edit", key=f"queue_cancel_edit_{queue_id}"):
                     st.session_state[edit_key] = False
                     st.rerun()
             else:
                 st.markdown("**Content preview**")
-                st.write(caption_preview or "_No caption saved._")
+                st.markdown(
+                    f'<div class="sbg-preview">{html.escape(caption_preview) if caption_preview else "No caption saved."}</div>',
+                    unsafe_allow_html=True,
+                )
 
             if hashtags:
                 st.caption(f"Hashtags: {hashtags}")
@@ -654,21 +829,23 @@ def render_content_queue_body():
                 if not hasattr(db, "update_queue_status"):
                     st.warning("Queue scheduling is not ready yet. Please refresh after deployment finishes.")
                     return
-                db.update_queue_status(
-                    queue_id,
-                    "scheduled",
-                    selected_date.isoformat(),
-                    selected_time.strftime("%H:%M"),
-                    selected_timezone,
-                )
-                st.success("Queued post scheduled.")
+                with st.spinner("Scheduling post..."):
+                    db.update_queue_status(
+                        queue_id,
+                        "scheduled",
+                        selected_date.isoformat(),
+                        selected_time.strftime("%H:%M"),
+                        selected_timezone,
+                    )
+                toast_success("Queued post scheduled.")
                 st.rerun()
             if action_cols[2].button("Remove", key=f"queue_delete_{queue_id}"):
                 if not hasattr(db, "delete_queue_item"):
                     st.warning("Queue deletion is not ready yet. Please refresh after deployment finishes.")
                     return
-                db.delete_queue_item(queue_id)
-                st.success("Removed queued post.")
+                with st.spinner("Removing queued post..."):
+                    db.delete_queue_item(queue_id)
+                toast_success("Removed queued post.")
                 st.rerun()
 
 
@@ -698,15 +875,17 @@ def render_campaign_calendar(rows):
         calendar_cols[1].write(platform or "General")
         calendar_cols[2].write(build_campaign_title(caption))
         calendar_cols[3].write(format_time_label(scheduled_time))
-        calendar_cols[4].caption(f"{status} | {timezone or 'America/New_York'} | #{queue_id}")
+        calendar_cols[4].markdown(badge(status or "scheduled"), unsafe_allow_html=True)
+        calendar_cols[4].caption(f"{timezone or 'America/New_York'} | #{queue_id}")
 
 
 def render_publishing_logs():
     st.markdown("#### Publishing Log")
     run_cols = st.columns([1, 3])
     if run_cols[0].button("Run Scheduler Simulation"):
-        result = run_scheduler_worker(simulate_only=True)
-        st.success(f"Scheduler scanned {result['scanned']} post(s). Ready to publish: {result['ready']}.")
+        with st.spinner("Running scheduler simulation..."):
+            result = run_scheduler_worker(simulate_only=True)
+        toast_success(f"Scheduler scanned {result['scanned']} post(s). Ready to publish: {result['ready']}.")
 
     if not hasattr(db, "list_publishing_logs"):
         st.caption("Publishing logs are not ready yet.")
@@ -722,7 +901,7 @@ def render_publishing_logs():
             cols = st.columns([1, 1, 1, 2])
             cols[0].markdown(f"**#{log_id}**")
             cols[1].write(platform or "Unknown")
-            cols[2].markdown(f"`{(status or 'unknown').upper()}`")
+            cols[2].markdown(badge(status or "unknown"), unsafe_allow_html=True)
             cols[3].caption(f"{created_at} | Queue item #{queue_item_id}")
             st.write(message or "_No message recorded._")
             if error_message:
@@ -746,12 +925,14 @@ def render_analytics_dashboard():
 
     analytics = db.get_analytics_summary()
 
+    st.markdown("#### Content & Publishing")
     post_cols = st.columns(4)
     post_cols[0].metric("Generated posts", analytics["total_generated_posts"])
     post_cols[1].metric("Queued posts", analytics["queued_posts"])
     post_cols[2].metric("Scheduled posts", analytics["scheduled_posts"])
     post_cols[3].metric("Simulated published", analytics["simulated_published_posts"])
 
+    st.markdown("#### Comment Automation")
     comment_cols = st.columns(5)
     comment_cols[0].metric("Comments ingested", analytics["total_comments_ingested"])
     comment_cols[1].metric("Replies drafted", analytics["replies_drafted"])
@@ -761,27 +942,30 @@ def render_analytics_dashboard():
 
     chart_cols = st.columns(2)
     with chart_cols[0]:
-        st.markdown("#### Queue Status")
-        queue_status_counts = analytics["queue_status_counts"]
-        if queue_status_counts:
-            st.bar_chart(build_bar_chart_data(queue_status_counts), x="label", y="count")
-        else:
-            st.write("No queue activity yet.")
+        with st.container(border=True):
+            st.markdown("#### Queue Status")
+            queue_status_counts = analytics["queue_status_counts"]
+            if queue_status_counts:
+                st.bar_chart(build_bar_chart_data(queue_status_counts), x="label", y="count")
+            else:
+                st.write("No queue activity yet.")
 
     with chart_cols[1]:
-        st.markdown("#### Comments By Category")
-        comments_by_category = analytics["comments_by_category"]
-        if comments_by_category:
-            st.bar_chart(build_bar_chart_data(comments_by_category), x="label", y="count")
-        else:
-            st.write("No comments classified yet.")
+        with st.container(border=True):
+            st.markdown("#### Comments By Category")
+            comments_by_category = analytics["comments_by_category"]
+            if comments_by_category:
+                st.bar_chart(build_bar_chart_data(comments_by_category), x="label", y="count")
+            else:
+                st.write("No comments classified yet.")
 
-    st.markdown("#### Comment Workflow")
-    comment_status_counts = analytics["comment_status_counts"]
-    if comment_status_counts:
-        st.bar_chart(build_bar_chart_data(comment_status_counts), x="label", y="count")
-    else:
-        st.write("No comment workflow activity yet.")
+    with st.container(border=True):
+        st.markdown("#### Comment Workflow")
+        comment_status_counts = analytics["comment_status_counts"]
+        if comment_status_counts:
+            st.bar_chart(build_bar_chart_data(comment_status_counts), x="label", y="count")
+        else:
+            st.write("No comment workflow activity yet.")
 
     if analytics["comments_needing_human_review"]:
         st.warning("Some comments need human review before reply simulation.")
@@ -793,13 +977,23 @@ def render_facebook_comment_automation_center():
     st.subheader("Facebook Comment Automation Center")
     st.caption("Ingest, classify, draft, approve, and simulate Facebook comment replies. Real replies are off by default.")
     st.info(f"LIVE_FACEBOOK_MODE is {'ON' if settings.LIVE_FACEBOOK_MODE else 'OFF'} - replies are simulated while this is off.")
+    st.markdown(
+        """
+        **Demo workflow:** Add a manual/demo comment → Classify → Generate Reply → Save/Edit Draft → Approve Reply → Simulate Reply.
+        """
+    )
     config_cols = st.columns(3)
-    page_id_configured = bool(getattr(settings, "FACEBOOK_PAGE_ID", "").strip())
-    token_configured = bool(getattr(settings, "FACEBOOK_PAGE_ACCESS_TOKEN", "").strip())
+    page_id_configured = is_real_meta_value(getattr(settings, "FACEBOOK_PAGE_ID", ""))
+    token_configured = is_real_meta_value(getattr(settings, "FACEBOOK_PAGE_ACCESS_TOKEN", ""))
     config_cols[0].metric("Facebook Page ID", "Configured" if page_id_configured else "Missing")
     config_cols[1].metric("Page Access Token", "Configured" if token_configured else "Missing")
     config_cols[2].metric("Graph Version", getattr(settings, "FACEBOOK_GRAPH_VERSION", "v20.0"))
     st.caption("Token value is intentionally hidden and never printed in the UI.")
+    demo_mode_active = not (page_id_configured and token_configured)
+    if demo_mode_active:
+        st.warning("Demo Mode Active - manual and demo comments are enabled. Real Meta fetching is disabled until Page ID and token are configured.")
+    else:
+        st.success("Meta read-only configuration detected. Real comment fetching is available, but replies remain simulated.")
 
     if hasattr(db, "ensure_facebook_comments_table"):
         db.ensure_facebook_comments_table()
@@ -815,22 +1009,26 @@ def render_facebook_comment_automation_center():
         fetch_cols = st.columns([1, 1, 2])
         post_limit = fetch_cols[0].number_input("Posts to scan", min_value=1, max_value=25, value=5, step=1)
         comments_per_post = fetch_cols[1].number_input("Comments per post", min_value=1, max_value=50, value=10, step=1)
-        if fetch_cols[2].button("Fetch Page Comments Read-Only"):
-            result = fetch_recent_page_comments(int(post_limit), int(comments_per_post))
+        if demo_mode_active:
+            fetch_cols[2].caption("Real Meta fetch is disabled in Demo Mode.")
+        if fetch_cols[2].button("Fetch Page Comments Read-Only", disabled=demo_mode_active):
+            with st.spinner("Fetching Facebook comments in read-only mode..."):
+                result = fetch_recent_page_comments(int(post_limit), int(comments_per_post))
             if not result["success"]:
                 st.error(result["message"])
             else:
                 imported = 0
-                for comment in result["comments"]:
-                    db.add_facebook_comment(
-                        source_post=comment["source_post"],
-                        commenter_name=comment["commenter_name"],
-                        comment_text=comment["comment_text"],
-                        facebook_post_id=comment["facebook_post_id"],
-                        facebook_comment_id=comment["facebook_comment_id"],
-                    )
-                    imported += 1
-                st.success(f"{result['message']} Imported {imported} comment(s) into SQLite.")
+                with st.spinner("Importing comments into the local inbox..."):
+                    for comment in result["comments"]:
+                        db.add_facebook_comment(
+                            source_post=comment["source_post"],
+                            commenter_name=comment["commenter_name"],
+                            comment_text=comment["comment_text"],
+                            facebook_post_id=comment["facebook_post_id"],
+                            facebook_comment_id=comment["facebook_comment_id"],
+                        )
+                        imported += 1
+                toast_success(f"{result['message']} Imported {imported} comment(s) into SQLite.")
                 st.rerun()
 
     with st.container(border=True):
@@ -852,8 +1050,9 @@ def render_facebook_comment_automation_center():
             if not comment_text.strip():
                 st.warning("Add a comment before saving.")
             else:
-                comment_id = db.add_facebook_comment(source_post, commenter_name, comment_text)
-                st.success(f"Added comment #{comment_id}.")
+                with st.spinner("Adding comment to the local inbox..."):
+                    comment_id = db.add_facebook_comment(source_post, commenter_name, comment_text)
+                toast_success(f"Added comment #{comment_id}.")
                 st.rerun()
         if ingest_cols[1].button("Add Demo Comments"):
             demo_comments = [
@@ -861,9 +1060,10 @@ def render_facebook_comment_automation_center():
                 ("Late night delivery post", "Chris", "Where are you parked after the club tonight?"),
                 ("Rib plate photo", "Denise", "Those ribs look amazing!"),
             ]
-            for demo_source, demo_name, demo_text in demo_comments:
-                db.add_facebook_comment(demo_source, demo_name, demo_text)
-            st.success("Demo comments added.")
+            with st.spinner("Adding demo comments..."):
+                for demo_source, demo_name, demo_text in demo_comments:
+                    db.add_facebook_comment(demo_source, demo_name, demo_text)
+            toast_success("Demo comments added.")
             st.rerun()
 
     rows = db.list_facebook_comments(100)
@@ -908,38 +1108,45 @@ def render_facebook_comment_automation_center():
             if facebook_comment_id:
                 header_cols[0].caption(f"Facebook comment ID: {facebook_comment_id} | Post ID: {facebook_post_id or 'unknown'}")
             header_cols[1].markdown(f"`{(classification or 'unclassified').upper()}`")
-            header_cols[2].markdown(f"**Status:** `{(status or 'new').upper()}`")
-            st.write(comment_text or "_No comment text saved._")
+            header_cols[2].markdown(badge(status or "new"), unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="sbg-preview">{html.escape(comment_text or "No comment text saved.")}</div>',
+                unsafe_allow_html=True,
+            )
 
             action_cols = st.columns(4)
             if action_cols[0].button("Classify", key=f"classify_comment_{comment_id}"):
-                comment_class = classify_comment(comment_text)
-                db.update_facebook_comment_classification(comment_id, comment_class)
-                st.success("Comment classified.")
+                with st.spinner("Classifying comment..."):
+                    comment_class = classify_comment(comment_text)
+                    db.update_facebook_comment_classification(comment_id, comment_class)
+                toast_success("Comment classified.")
                 st.rerun()
 
             if action_cols[1].button("Generate Reply", key=f"generate_reply_{comment_id}"):
                 comment_class = classification or classify_comment(comment_text)
                 if not classification:
                     db.update_facebook_comment_classification(comment_id, comment_class)
-                reply = generate_ai_reply(comment_text, comment_class)
-                db.update_facebook_comment_reply(comment_id, reply, "reply_drafted")
-                st.success("AI reply draft generated.")
+                with st.spinner("Generating reply draft..."):
+                    reply = generate_ai_reply(comment_text, comment_class)
+                    db.update_facebook_comment_reply(comment_id, reply, "reply_drafted")
+                toast_success("AI reply draft generated.")
                 st.rerun()
 
             if action_cols[2].button("Approve Reply", key=f"approve_reply_{comment_id}"):
                 if not suggested_reply:
                     st.warning("Generate or write a reply before approval.")
                 else:
-                    db.update_facebook_comment_reply(comment_id, suggested_reply, "approved")
-                    st.success("Reply approved.")
+                    with st.spinner("Approving reply..."):
+                        db.update_facebook_comment_reply(comment_id, suggested_reply, "approved")
+                    toast_success("Reply approved.")
                     st.rerun()
 
             if action_cols[3].button("Simulate Reply", key=f"simulate_reply_{comment_id}"):
                 if status != "approved":
                     st.warning("Approve the reply before simulating publishing.")
                 else:
-                    result = publish_comment_reply(comment, suggested_reply or "")
+                    with st.spinner("Simulating reply publishing..."):
+                        result = publish_comment_reply(comment, suggested_reply or "")
                     next_status = "simulated_replied" if result["success"] else "failed"
                     db.update_facebook_comment_reply_attempt(
                         comment_id,
@@ -954,24 +1161,31 @@ def render_facebook_comment_automation_center():
                         result.get("message", ""),
                         "" if result["success"] else result.get("message", ""),
                     )
-                    st.success(result["message"]) if result["success"] else st.error(result["message"])
+                    if result["success"]:
+                        toast_success(result["message"])
+                    else:
+                        st.error(result["message"])
                     st.rerun()
 
-            edited_reply = st.text_area(
-                "Reply draft",
-                value=suggested_reply or "",
-                height=120,
-                key=f"comment_reply_text_{comment_id}",
-                placeholder="Generate a reply, then edit it before approval.",
-            )
-            save_cols = st.columns([1, 3])
-            if save_cols[0].button("Save Reply Draft", key=f"save_reply_draft_{comment_id}"):
-                if not edited_reply.strip():
-                    st.warning("Reply draft cannot be empty.")
-                else:
-                    db.update_facebook_comment_reply(comment_id, edited_reply, "reply_drafted")
-                    st.success("Reply draft saved.")
-                    st.rerun()
+            with st.container(border=True):
+                st.markdown("**Reply draft workspace**")
+                st.caption("Review and edit before approval. Live replies stay disabled.")
+                edited_reply = st.text_area(
+                    "Reply draft",
+                    value=suggested_reply or "",
+                    height=120,
+                    key=f"comment_reply_text_{comment_id}",
+                    placeholder="Generate a reply, then edit it before approval.",
+                )
+                save_cols = st.columns([1, 3])
+                if save_cols[0].button("Save Reply Draft", key=f"save_reply_draft_{comment_id}"):
+                    if not edited_reply.strip():
+                        st.warning("Reply draft cannot be empty.")
+                    else:
+                        with st.spinner("Saving reply draft..."):
+                            db.update_facebook_comment_reply(comment_id, edited_reply, "reply_drafted")
+                        toast_success("Reply draft saved.")
+                        st.rerun()
 
             if last_reply_attempt_at or reply_status:
                 st.caption(f"Last reply attempt: {last_reply_attempt_at or 'Not attempted'} | Reply status: {reply_status or 'none'}")
@@ -1490,26 +1704,35 @@ def main():
     init_app()
 
     st.set_page_config(page_title="Savannah BBQ Growth Engine v2", page_icon="🍖")
+    apply_demo_styles()
     banner_path = os.path.join("assets", "banner.png")
     logo_path = os.path.join("assets", "logo.png")
 
     if os.path.exists(banner_path):
-        st.image(banner_path, use_column_width=True)
+        st.image(banner_path, width="stretch")
 
-    cols = st.columns([1, 3])
+    cols = st.columns([0.8, 4], vertical_alignment="center")
     if os.path.exists(logo_path):
         cols[0].image(logo_path, width=120)
 
-    cols[1].markdown("""
-    ## Savannah BBQ Growth Engine — v2
-    AI-powered marketing copy for your food truck.
-    Create local captions, viral hashtags, promotional posts, photo-based captions, replies, event announcements, catering promos, and email campaigns.
-    """)
-
-    st.markdown("---")
-    st.markdown(
-        "**Local-first. Social-ready. Brand-safe.** Built for Savannah BBQ to help you publish faster and stay consistent across channels."
+    cols[1].markdown(
+        """
+        <div class="sbg-hero">
+            <div class="sbg-eyebrow">AI Restaurant Marketing Operating System</div>
+            <h1>Savannah BBQ Growth Engine</h1>
+            <p>
+                Generate campaigns, queue posts, schedule promotions, simulate publishing, handle comment replies,
+                and track growth signals from one polished local MVP.
+            </p>
+            <span class="sbg-chip">Local-first</span>
+            <span class="sbg-chip">Social-ready</span>
+            <span class="sbg-chip">Brand-safe</span>
+            <span class="sbg-chip">Demo Mode ready</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
+    render_onboarding_helper()
 
     st.sidebar.header("Generation controls")
     task = st.sidebar.selectbox(
@@ -1691,7 +1914,7 @@ def main():
             help="Upload the photo you want captions, hashtags, and promo copy for.",
         )
         if uploaded_image:
-            st.image(uploaded_image, caption=f"Uploaded image: {uploaded_image.name}", use_column_width=True)
+            st.image(uploaded_image, caption=f"Uploaded image: {uploaded_image.name}", width="stretch")
     elif task == "Video upload caption generator":
         st.markdown("#### Upload a short video")
         st.caption(f"Recommended: 5-15 seconds. Hard limit: {MAX_VIDEO_SECONDS} seconds or {MAX_VIDEO_UPLOAD_MB} MB.")
@@ -1811,7 +2034,7 @@ def main():
                     output_cols = st.columns([1, 1.2])
                     with output_cols[0]:
                         st.markdown("**Source image**")
-                        st.image(uploaded_image, caption=uploaded_image.name, use_column_width=True)
+                        st.image(uploaded_image, caption=uploaded_image.name, width="stretch")
                         st.info("Generated from uploaded image")
                     with output_cols[1]:
                         st.markdown("**Copy-friendly output**")

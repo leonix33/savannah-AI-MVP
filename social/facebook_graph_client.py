@@ -6,10 +6,17 @@ from config import settings
 GRAPH_BASE_URL = f"https://graph.facebook.com/{settings.FACEBOOK_GRAPH_VERSION}"
 
 
+def is_real_meta_value(value: str) -> bool:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return False
+    return not any(marker in normalized for marker in ("paste_", "your_", "_here"))
+
+
 def validate_facebook_graph_config() -> tuple[bool, str]:
-    if not settings.FACEBOOK_PAGE_ID:
+    if not is_real_meta_value(settings.FACEBOOK_PAGE_ID):
         return False, "FACEBOOK_PAGE_ID is missing."
-    if not settings.FACEBOOK_PAGE_ACCESS_TOKEN:
+    if not is_real_meta_value(settings.FACEBOOK_PAGE_ACCESS_TOKEN):
         return False, "FACEBOOK_PAGE_ACCESS_TOKEN is missing."
     return True, "Facebook Graph config is ready for read-only testing."
 
