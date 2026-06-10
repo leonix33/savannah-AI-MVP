@@ -13,7 +13,14 @@ import streamlit.components.v1 as components
 import openai
 from PIL import Image, ImageOps
 from utils import db
-from social.facebook_client import validate_facebook_config
+from social.facebook_client import (
+    get_facebook_connection_status,
+    get_instagram_connection_status,
+    get_tiktok_connection_status,
+    publish_facebook_post_placeholder,
+    validate_facebook_config,
+    validate_facebook_page_config,
+)
 from scheduler.runner import recommend_time_for_platform, simulate_scheduler_run
 from scheduler_worker import run_scheduler_worker
 from config import settings
@@ -1455,8 +1462,85 @@ def render_menu_specials_lab(platform: str, tone: str, cost_per_1k: float):
         st.warning(f"Could not save menu marketing plan: {exc}")
 
 
+def get_simulation_content() -> tuple[str, str | None, str]:
+    """Pick the latest generated content, falling back to the newest queued post."""
+    latest_generation = st.session_state.get("latest_generation")
+    if latest_generation and (latest_generation.get("result") or "").strip():
+        return latest_generation["result"], latest_generation.get("media_name"), "latest generated content"
+
+    if hasattr(db, "list_queue_items"):
+        rows = db.list_queue_items(1)
+        if rows:
+            row = rows[0]
+            content = (row[3] or "").strip()
+            if content:
+                return content, row[6], f"queued post #{row[0]}"
+
+    return "", None, "no content available"
+
+
+def render_social_publishing_connector():
+    st.markdown("### Social Publishing Connector")
+    st.caption("Connection readiness for future Facebook, Instagram, and TikTok publishing. Simulation only - no real API calls.")
+
+    facebook_status = get_facebook_connection_status()
+    instagram_status = get_instagram_connection_status()
+    tiktok_status = get_tiktok_connection_status()
+
+    st.info(f"Current mode: {facebook_status['mode']}")
+
+    status_cols = st.columns(3)
+    status_cols[0].metric("Facebook Page", facebook_status["status"])
+    status_cols[1].metric("Instagram", instagram_status["status"])
+    status_cols[2].metric("TikTok", tiktok_status["status"])
+    st.caption("Tokens and IDs are read from environment settings and never displayed in the UI.")
+
+    action_cols = st.columns(3)
+    if action_cols[0].button("Check Facebook Config"):
+        validation = validate_facebook_page_config()
+        if validation["ready"]:
+            st.success(validation["message"])
+        else:
+            st.warning(validation["message"])
+
+    if action_cols[1].button("Simulate Facebook Publish"):
+        caption, media_name, content_source = get_simulation_content()
+        with st.spinner("Simulating Facebook publish..."):
+            result = publish_facebook_post_placeholder(caption, media_name)
+        if result.get("simulated"):
+            st.success(f"{result['message']} (Used {content_source}.)")
+            st.markdown("**Caption preview**")
+            st.write(result.get("caption_preview") or "_No caption preview._")
+            if result.get("media_name"):
+                st.caption(f"Media: {result['media_name']}")
+        else:
+            st.warning(result["message"])
+
+    if action_cols[2].button("Show Required Setup Steps"):
+        st.session_state["show_connector_setup_steps"] = not st.session_state.get("show_connector_setup_steps", False)
+
+    if st.session_state.get("show_connector_setup_steps"):
+        with st.container(border=True):
+            st.markdown(
+                """
+                **Required setup steps for live publishing**
+
+                1. Create a Meta Developer App at developers.facebook.com.
+                2. Connect the Savannah BBQ Facebook Business Page to that app.
+                3. Generate a Page Access Token with the required Page permissions.
+                4. Add the token to Streamlit Secrets (or local `.env`) - never commit it to code.
+                5. Keep `LIVE_SOCIAL_PUBLISHING=false` until the workflow is approved and tested.
+
+                Instagram and TikTok publishing will follow the same pattern after Facebook is verified.
+                """
+            )
+
+    st.markdown("---")
+
+
 def render_social_media_integration_guide():
     st.subheader("Social Media Integration Path")
+    render_social_publishing_connector()
     st.caption("A business-safe path from generated content to future Facebook/Instagram publishing.")
 
     facebook_config = validate_facebook_config()
